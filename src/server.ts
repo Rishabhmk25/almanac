@@ -43,15 +43,17 @@ const app = new Hono();
 const require = createRequire(import.meta.url);
 const markedPath = path.join(path.dirname(require.resolve('marked/package.json')), 'lib/marked.umd.js');
 const purifyPath = path.join(path.dirname(require.resolve('dompurify')), 'purify.min.js');
+const markedJs = fs.readFileSync(markedPath, 'utf-8');
+const purifyJs = fs.readFileSync(purifyPath, 'utf-8');
 
 app.get('/vendor/marked.umd.js', c => {
-  return c.body(fs.readFileSync(markedPath, 'utf-8'), 200, {
+  return c.body(markedJs, 200, {
     'Content-Type': 'text/javascript',
   });
 });
 
 app.get('/vendor/purify.min.js', c => {
-  return c.body(fs.readFileSync(purifyPath, 'utf-8'), 200, {
+  return c.body(purifyJs, 200, {
     'Content-Type': 'text/javascript',
   });
 });
@@ -327,7 +329,9 @@ app.post('/api/import', async c => {
 
   const authHeader = c.req.header('authorization') || '';
   const token = authHeader.replace(/^Bearer\s+/i, '').trim();
-  if (token !== cfg.adminToken) {
+  const tokenHash = crypto.createHash('sha256').update(token).digest();
+  const expectedHash = crypto.createHash('sha256').update(cfg.adminToken).digest();
+  if (!crypto.timingSafeEqual(tokenHash, expectedHash)) {
     return c.text('Unauthorized', 401);
   }
 

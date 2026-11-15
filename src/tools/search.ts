@@ -489,10 +489,7 @@ export function formatToolResult(
 
   for (const res of results) {
     const q = res.query;
-    let header = `QUERY "${q.q}" (entity: ${q.entity || 'unknown'}, kind: ${q.kind}`;
-    if (q.since) header += `, since: ${q.since}`;
-    header += `)`;
-    parts.push(header);
+    parts.push(`QUERY JSON: ${JSON.stringify({ q: q.q, entity: q.entity || 'unknown', kind: q.kind, since: q.since })}`);
 
     if (res.error) {
       parts.push(`FAILED: ${res.error}. No evidence for this query.\n`);
@@ -514,23 +511,20 @@ export function formatToolResult(
       const retrieved = nowHuman('UTC');
       const snippet = sanitizeTags((r.content || '').slice(0, 500));
 
-      parts.push(
-        `<web_result domain="${domain}" published="${pub}" retrieved="${retrieved}" url="${canonicalUrl(r.url)}">\n${snippet}\n</web_result>`
-      );
+      parts.push(`UNTRUSTED WEB RESULT JSON: ${JSON.stringify({ domain, published: pub, retrieved, url: canonicalUrl(r.url), snippet })}`);
     }
     parts.push('');
   }
 
   if (dropped.length > 0) {
-    const droppedQueries = dropped.map(d => `"${d.q}"`).join(', ');
-    parts.push(`NOT RUN (budget): ${dropped.length} queries (${droppedQueries}).`);
+    parts.push(`NOT RUN (budget) JSON: ${JSON.stringify(dropped.map(d => d.q))}`);
   }
 
   // Check which entities have no evidence yet using word-boundary matching
   if (allKnownEntities.length > 0) {
     const gaps = allKnownEntities.filter(e => !coveredEntities.has(e.toLowerCase()));
     if (gaps.length > 0) {
-      parts.push(`ENTITIES WITH NO EVIDENCE YET: ${gaps.join(', ')}.`);
+      parts.push(`ENTITIES WITH NO EVIDENCE YET JSON: ${JSON.stringify(gaps)}`);
     }
   }
 

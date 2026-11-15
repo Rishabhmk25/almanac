@@ -55,7 +55,7 @@ export interface MessageRow {
   demo: number;
 }
 
-const STOPWORDS = new Set([
+export const STOPWORDS = new Set([
   'a', 'about', 'above', 'after', 'again', 'against', 'all', 'am', 'an', 'and', 'any', 'are', 'as', 'at',
   'be', 'because', 'been', 'before', 'being', 'below', 'between', 'both', 'but', 'by',
   'can', 'could', 'did', 'do', 'does', 'doing', 'down', 'during',
@@ -295,23 +295,24 @@ export function saveAnswer(
   const evJson = JSON.stringify(evidence);
   const metaJson = JSON.stringify(meta);
 
-  // Check if message already exists
-  const existing = db.prepare('SELECT id FROM messages WHERE id = ?').get(id);
-  if (existing) {
-    db.prepare(`
-      UPDATE messages
-      SET content = ?, evidence = ?, meta = ?, status = ?
-      WHERE id = ?
-    `).run(content, evJson, metaJson, status, id);
-  } else {
-    const nextSeqRow = db.prepare('SELECT COALESCE(MAX(seq), 0) + 1 AS nextSeq FROM messages WHERE conversation_id = ?').get(convId) as { nextSeq: number };
-    db.prepare(`
-      INSERT INTO messages (id, conversation_id, seq, role, content, created_at, status, evidence, meta, imported, demo)
-      VALUES (?, ?, ?, 'assistant', ?, ?, ?, ?, ?, 0, 0)
-    `).run(id, convId, nextSeqRow.nextSeq, content, msgTime, status, evJson, metaJson);
-  }
+  db.transaction(() => {
+    const existing = db.prepare('SELECT id FROM messages WHERE id = ?').get(id);
+    if (existing) {
+      db.prepare(`
+        UPDATE messages
+        SET content = ?, evidence = ?, meta = ?, status = ?
+        WHERE id = ?
+      `).run(content, evJson, metaJson, status, id);
+    } else {
+      const nextSeqRow = db.prepare('SELECT COALESCE(MAX(seq), 0) + 1 AS nextSeq FROM messages WHERE conversation_id = ?').get(convId) as { nextSeq: number };
+      db.prepare(`
+        INSERT INTO messages (id, conversation_id, seq, role, content, created_at, status, evidence, meta, imported, demo)
+        VALUES (?, ?, ?, 'assistant', ?, ?, ?, ?, ?, 0, 0)
+      `).run(id, convId, nextSeqRow.nextSeq, content, msgTime, status, evJson, metaJson);
+    }
 
-  db.prepare('UPDATE conversations SET updated_at = ? WHERE id = ?').run(msgTime, convId);
+    db.prepare('UPDATE conversations SET updated_at = ? WHERE id = ?').run(msgTime, convId);
+  })();
 }
 
 export function listConversations(limit = 200): Array<{ id: string; title: string; createdAt: number; updatedAt: number }> {

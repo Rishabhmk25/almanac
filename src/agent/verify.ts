@@ -61,6 +61,12 @@ export function extractFigures(text: string): string[] {
     figures.push(m[0].trim());
   }
 
+  // Capture small product limits when the number is paired with a quantitative unit.
+  const quantityRegex = /\b(\d+(?:\.\d+)?)\s+(?:seats?|users?|days?|months?|years?|weeks?|teams?|projects?|items?|workspaces?|members?|integrations?|GB|TB)\b/gi;
+  for (const m of text.matchAll(quantityRegex)) {
+    figures.push(m[1] ?? '');
+  }
+
   // 3. Numbers of 3 or more digits: 100, 1,200, 5000 (excluding years like 2026 if context implies date)
   const numbersRegex = /\b\d{1,3}(?:,\d{3})+(?:\.\d+)?|\b\d{3,}(?:\.\d+)?\b/g;
   for (const m of text.matchAll(numbersRegex)) {
@@ -180,6 +186,7 @@ export function verify(
       // If header or normal table row
       const cells = trimmed.split('|').slice(1, -1);
       const rowCites = cells.flatMap(c => citesIn(c));
+      const rowEntities = Array.from(new Set(cells.flatMap(c => entitiesNamedIn(c, aliases))));
 
       const processedCells = cells.map(cell => {
         let cellContent = cell.trim();
@@ -202,7 +209,8 @@ export function verify(
         }
 
         const named = entitiesNamedIn(cellContent, aliases);
-        if (nums.length > 0 && named.length > 0 && !items.some(i => i && named.some(e => itemMentions(i, aliases.get(e) ?? [])))) {
+        const namedInRow = named.length ? named : rowEntities;
+        if (nums.length > 0 && namedInRow.length > 0 && !items.some(i => i && namedInRow.some(e => itemMentions(i, aliases.get(e) ?? [])))) {
           return ` ${cellContent}${mark('The cited source does not mention the product named here.')} `;
         }
 

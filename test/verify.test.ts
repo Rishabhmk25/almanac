@@ -60,6 +60,18 @@ describe('Verifier (verify.ts)', () => {
     expect(res.flags[0]?.reason).toContain('does not mention the product named here');
   });
 
+  it('checks product attribution from the first column in comparison tables', () => {
+    const text = `| Tool | Price | Source |
+|---|---|---|
+| Pipedrive | $20 [W1] | [W1] |`;
+    const res = verify(text, mockEvidence, ['HubSpot', 'Pipedrive']);
+    expect(res.flags.some(f => f.reason.includes('does not mention the product named here'))).toBe(true);
+  });
+
+  it('extracts small quantities when paired with units', () => {
+    expect(extractFigures('Allows 5 seats and retains data for 30 days.')).toEqual(['5', '30']);
+  });
+
   it('handles tables and cell-level verification', () => {
     const tableText = `| Tool | Price | Evidence |
 |---|---|---|

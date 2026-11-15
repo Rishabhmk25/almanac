@@ -8,6 +8,7 @@ import {
   turnOf,
   ftsQuery,
   EvidenceItem,
+  STOPWORDS,
 } from './store.js';
 import { TemporalHint } from '../agent/time.js';
 
@@ -21,27 +22,6 @@ export function estTokens(s: string): number {
 export function sanitizeTags(text: string): string {
   return text.replace(/\[([WMU]\d+)\]/g, '($1)');
 }
-
-const STOPWORDS = new Set([
-  'a', 'about', 'above', 'after', 'again', 'against', 'all', 'am', 'an', 'and', 'any', 'are', 'as', 'at',
-  'be', 'because', 'been', 'before', 'being', 'below', 'between', 'both', 'but', 'by',
-  'can', 'could', 'did', 'do', 'does', 'doing', 'down', 'during',
-  'each', 'few', 'for', 'from', 'further',
-  'had', 'has', 'have', 'having', 'he', 'her', 'here', 'hers', 'herself', 'him', 'himself', 'his', 'how',
-  'i', 'if', 'in', 'into', 'is', 'it', 'its', 'itself',
-  'just', 'let', 'me', 'more', 'most', 'my', 'myself',
-  'no', 'nor', 'not', 'now', 'of', 'off', 'on', 'once', 'only', 'or', 'other', 'our', 'ours', 'ourselves', 'out', 'over', 'own',
-  'same', 'she', 'should', 'so', 'some', 'such',
-  'than', 'that', 'the', 'their', 'theirs', 'them', 'themselves', 'then', 'there', 'these', 'they', 'this', 'those', 'through', 'to', 'too',
-  'under', 'until', 'up', 'us', 'very',
-  'was', 'we', 'were', 'what', 'when', 'where', 'which', 'while', 'who', 'whom', 'why', 'with', 'would',
-  'you', 'your', 'yours', 'yourself', 'yourselves',
-  // Conversational meta-words
-  'ask', 'asked', 'asking', 'answer', 'answered', 'answers', 'say', 'said', 'tell', 'told', 'still', 'correct',
-  'question', 'questions', 'chat', 'chats', 'discuss', 'discussed', 'talk', 'talked', 'check', 'recheck',
-  'instead', 'study', 'studied', 'studying', 'learn', 'learned', 'learning', 'know', 'knew', 'remember', 'recall',
-  'note', 'notes', 'read', 'reading', 'write', 'wrote', 'find', 'found', 'mention', 'mentioned', 'search', 'searched'
-]);
 
 function extractContentTokens(text: string, datePhrases: string[] = []): string[] {
   let cleaned = text.toLowerCase();
@@ -104,25 +84,37 @@ export function buildMemoryContext(
   let primaryHint: TemporalHint | undefined =
     hints.find(h => !['today', 'earlier', 'earlier today', 'this morning', 'this afternoon'].includes(h.phrase.toLowerCase())) ||
     hints[0];
-  let window: { from: number; to: number } | undefined;
+  let windows: Array<{ from: number; to: number }> = [];
+  let windowLabels: string[] = [];
   if (primaryHint) {
     if (primaryHint.alt) {
-      // Check which reading has memory hits
-      const cPrimary = countUserMessages({ from: primaryHint.from, to: primaryHint.to }, excludeIds);
-      const cAlt = countUserMessages({ from: primaryHint.alt.from, to: primaryHint.alt.to }, excludeIds);
-      if (cPrimary === 0 && cAlt > 0) {
-        window = { from: primaryHint.alt.from, to: primaryHint.alt.to };
-      } else {
-        window = { from: Math.min(primaryHint.from, primaryHint.alt.from), to: Math.max(primaryHint.to, primaryHint.alt.to) };
-      }
+      const options = [
+        { window: { from: primaryHint.from, to: primaryHint.to }, label: primaryHint.label },
+        { window: { from: primaryHint.alt.from, to: primaryHint.alt.to }, label: primaryHint.alt.label },
+      ];
+      const matching = options.filter(option => countUserMessages(option.window, excludeIds) > 0);
+      const selected = matching.length ? matching : options.slice(0, 1);
+      windows = selected.map(option => option.window);
+      windowLabels = selected.map(option => option.label);
     } else {
-      window = { from: primaryHint.from, to: primaryHint.to };
+      windows = [{ from: primaryHint.from, to: primaryHint.to }];
+      windowLabels = [primaryHint.label];
     }
   }
 
+  const countInWindows = () => windows.reduce((sum, win) => sum + countUserMessages(win, excludeIds), 0);
+  const messagesInWindows = (limit: number) => windows
+    .flatMap(win => userMessagesIn(win, limit, excludeIds))
+    .sort((a, b) => a.createdAt - b.createdAt)
+    .slice(0, limit);
+  const hitsInWindows = (query: string, limit: number) => windows
+    .flatMap(win => bm25(query, win, limit, excludeIds))
+    .sort((a, b) => a.score - b.score)
+    .slice(0, limit);
+
   // Is list mode?
   // "If there is a date window and the message has three or fewer content tokens left after removing the date phrase and stopwords"
-  const isListMode = Boolean(window && contentTokens.length <= 3);
+  const isListMode = Boolean(windows.length && contentTokens.length <= 3);
 
   const memoryItems: EvidenceItem[] = [];
   const memoryXmlParts: string[] = [];
@@ -131,12 +123,12 @@ export function buildMemoryContext(
 
   let mCounter = 1;
 
-  if (isListMode && window && primaryHint) {
-    const totalCount = countUserMessages(window, excludeIds);
+  if (isListMode && primaryHint) {
     // Digests up to 70% of cap
     const digestCapTokens = Math.floor(MEMORY_TOKEN_CAP * 0.7);
     const limit = 40;
-    const userMsgs = userMessagesIn(window, limit, excludeIds);
+    const totalCount = countInWindows();
+    const userMsgs = messagesInWindows(limit);
 
     let usedTokens = 0;
     const included: typeof userMsgs = [];
@@ -150,7 +142,7 @@ export function buildMemoryContext(
 
     const shown = included.length;
     const omitted = totalCount - shown;
-    listingHeader = `Showing ${shown} of ${totalCount} user messages on ${primaryHint.label}${omitted > 0 ? `; ${omitted} not shown` : ''}.`;
+    listingHeader = `Showing ${shown} of ${totalCount} user messages on ${windowLabels.join(' and ')}${omitted > 0 ? `; ${omitted} not shown` : ''}.`;
 
     for (const msg of included) {
       const tag = `M${mCounter++}`;
@@ -183,12 +175,12 @@ export function buildMemoryContext(
     tokenBudget -= usedTokens;
   }
 
-  // 2. Turns in full: rank the window's turns (or all turns if no window) by BM25, up to 3 turns
+  // 2. Turns in full: rank the matching date windows (or all turns if none) by BM25, up to 3 turns
   if (tokenBudget > 300) {
-    let hits = fts ? bm25(fts, window, 10, excludeIds) : [];
-    if (window && hits.length === 0) {
+    let hits = fts && windows.length ? hitsInWindows(fts, 10) : fts ? bm25(fts, undefined, 10, excludeIds) : [];
+    if (windows.length && hits.length === 0) {
       // If user queried a specific date without keyword matches, retrieve turns in that window to re-check
-      const msgsInWin = userMessagesIn(window, 3, excludeIds);
+      const msgsInWin = messagesInWindows(3);
       hits = msgsInWin.map(m => {
         const row = getDb().prepare('SELECT seq, conversation_id FROM messages WHERE id = ?').get(m.id) as { seq: number; conversation_id: string } | undefined;
         return { id: m.id, conversationId: row?.conversation_id || '', seq: row?.seq || 1, score: 0 };
@@ -275,7 +267,7 @@ export function buildMemoryContext(
   }
 
   // 3. Other chats: up to 3 turns outside the window, trimmed to 400 chars, only if message has at least 2 content tokens
-  if (fts && contentTokens.length >= 2 && window && tokenBudget > 200) {
+  if (fts && contentTokens.length >= 2 && windows.length && tokenBudget > 200) {
     const outsideHits = bm25(fts, undefined, 5, excludeIds);
     let outsideCount = 0;
     for (const hit of outsideHits) {

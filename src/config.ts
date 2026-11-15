@@ -41,7 +41,7 @@ export interface BudgetCfg {
   reserveForAnswerMs: number;
 }
 
-const defaultModel = parsed.GEMINI_API_KEY || !parsed.GROQ_API_KEY ? 'gemini-3.5-flash' : 'openai/gpt-oss-120b';
+const defaultModel = parsed.GEMINI_API_KEY || !parsed.GROQ_API_KEY ? 'gemini-3.6-flash' : 'openai/gpt-oss-120b';
 const defaultFallback = parsed.GEMINI_API_KEY || !parsed.GROQ_API_KEY ? 'gemini-3.5-flash-lite' : 'openai/gpt-oss-20b';
 
 const notices: string[] = [];

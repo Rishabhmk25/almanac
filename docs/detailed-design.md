@@ -41,9 +41,9 @@ Memory is "said on date X"; only fresh web evidence supports present-tense claim
 - **Different value (unconfirmed change)**: When current sources show a different number but lack a dated announcement, the agent states both figures honestly without asserting an unverified change.
 - **Could not verify**: When no recent or dated web evidence is found, or when search degrades. The agent writes "I found no announcement of a change since [date]", never "nothing changed".
 
-## LLM Architecture: Google Gemini 3.5 / 3.6 Flash
+## LLM Architecture: Google Gemini 3.6 Flash
 
-Almanac uses **Google Gemini 3.5 Flash** (forwarded by Google's API to `gemini-3.6-flash`) as its primary reasoning engine (with `gemini-3.5-flash-lite` fallback and optional Groq compatibility).
+Almanac uses **Google Gemini 3.6 Flash** as its primary reasoning engine (with `gemini-3.5-flash-lite` fallback and optional Groq compatibility).
 - **Ultra-Fast Reasoning & High Throughput**: With fast generation and generous token throughput, Gemini Flash enables deep evidence capacity (expanded to 12,000 characters) without prompt truncation or HTTP 413 payload errors.
 - **Native Tool Calling**: Uses Gemini's native function calling declarations for `web_search` with strict parameter validation.
 - **Multi-Round Search Gap Filling**: Higher limits allow the agent to inspect round 1 results and run follow-up targeted queries for entities that had missing or incomplete evidence.

@@ -133,6 +133,7 @@ export async function streamRound(opts: StreamRoundOpts): Promise<StreamRoundRes
   const client = getGeminiClient();
   const modelsToTry = Array.from(new Set([
     cfg.model,
+    'gemini-3.6-flash',
     cfg.fallbackModel,
     'gemini-3.5-flash',
     'gemini-3.5-flash-lite',

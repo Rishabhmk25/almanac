@@ -50,7 +50,7 @@ Gemini and Tavily keys are optional: a missing LLM key shows a setup message; a 
 ## Configuration
 
 See `.env.example` for all environment variables including:
-- `MODEL` / `FALLBACK_MODEL` — LLM model IDs (defaults to `gemini-3.5-flash` / `gemini-3.5-flash-lite`)
+- `MODEL` / `FALLBACK_MODEL` — LLM model IDs (defaults to `gemini-3.6-flash` / `gemini-3.5-flash-lite`)
 - `HOST` / `PORT` — Server binding (`127.0.0.1`, `localhost`, or `::1` only; non-loopback hosts are refused)
 - Budget settings: `MAX_ROUNDS`, `MAX_QUERIES_PER_TURN`, `MAX_READS`, `DEADLINE_MS`
 - Testing: `NOW_OVERRIDE`, `SEED_DEMO`, `FAULT`

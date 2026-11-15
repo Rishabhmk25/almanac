@@ -54,6 +54,137 @@ function briefZod(err: unknown): string {
   return 'Schema validation error';
 }
 
+/**
+ * Detects conversational inputs (greetings, pleasantries, acknowledgments,
+ * assistant meta inquiries, and pure follow-up reformatting requests)
+ * that should bypass the web search tool loop completely.
+ */
+export function shouldBypassSearch(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return true;
+
+  // Normalize: lower case, strip non-alphanumeric punctuation, collapse whitespace
+  const cleaned = trimmed
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!cleaned) return true;
+
+  // 1. Exact phrase matches for single-turn pleasantries, acknowledgments, and meta
+  const exactPhrases = new Set([
+    // Greetings
+    'hi',
+    'hello',
+    'hey',
+    'heya',
+    'hiya',
+    'howdy',
+    'sup',
+    'yo',
+    'good morning',
+    'good afternoon',
+    'good evening',
+    'greetings',
+    'hello there',
+    'hey there',
+    'hi there',
+    // Farewells
+    'bye',
+    'goodbye',
+    'see you',
+    'see ya',
+    'cya',
+    'good night',
+    'have a nice day',
+    'have a good day',
+    'have a great day',
+    'take care',
+    'farewell',
+    // Gratitude & courtesy
+    'thanks',
+    'thank you',
+    'thanks a lot',
+    'thank you so much',
+    'thanks that helps',
+    'thank you that helps',
+    'thx',
+    'ty',
+    'much appreciated',
+    // Acknowledgments
+    'ok',
+    'okay',
+    'got it',
+    'understood',
+    'cool',
+    'nice',
+    'great',
+    'awesome',
+    'perfect',
+    'sounds good',
+    'alright',
+    'all right',
+    'sure',
+    'sure thing',
+    'no problem',
+    'you bet',
+    // Assistant meta & chitchat
+    'how are you',
+    'how are you doing',
+    'how is it going',
+    'hows it going',
+    'whats up',
+    'what is up',
+    'who are you',
+    'what are you',
+    'what is your name',
+    'what can you do',
+    'help',
+    'how do you work',
+    'how does this work',
+    'who made you',
+    'who created you',
+    // Direct formatting / follow-up adjustments
+    'make that a table',
+    'make it a table',
+    'format as a table',
+    'format that as a table',
+    'put that in a table',
+    'summarize that',
+    'make it shorter',
+    'shorter please',
+    'can you elaborate',
+    'tell me more',
+    'explain that',
+    'repeat that',
+  ]);
+
+  if (exactPhrases.has(cleaned)) {
+    return true;
+  }
+
+  // 2. Pattern matching for combined greetings and conversational openers
+  const combinedGreetingPattern = /^(?:hi|hello|hey|heya|hiya|howdy|good\s+(?:morning|afternoon|evening)|greetings)(?:\s+(?:there|almanac|bot|friend|everyone))?(?:\s+(?:how\s+are\s+you(?:[\s\w]*)|what(?:'?s|\s+is)\s+up|who\s+are\s+you|what\s+can\s+you\s+do|how\s+(?:are\s+things|is\s+it\s+going)))?$/i;
+  if (combinedGreetingPattern.test(cleaned)) {
+    return true;
+  }
+
+  // 3. Pattern matching for courtesy extensions (e.g. "thanks almanac", "thank you very much")
+  const courtesyPattern = /^(?:thanks?|thank\s+you)(?:\s+(?:a\s+lot|very\s+much|so\s+much|that\s+helps))?(?:\s+(?:almanac|bot|again))?$/i;
+  if (courtesyPattern.test(cleaned)) {
+    return true;
+  }
+
+  // 4. Pattern matching for farewell extensions and compound farewells (e.g. "goodbye, see you later")
+  const farewellPattern = /^(?:bye|goodbye)(?:[\s,]+(?:see\s+(?:you|ya)(?:\s+later)?|take\s+care|have\s+a\s+(?:good|nice|great)\s+day|later|for\s+now|almanac))?$|^(?:see\s+(?:you|ya)(?:\s+later)?|cya)(?:\s+(?:later|for\s+now|almanac))?$/i;
+  if (farewellPattern.test(cleaned)) {
+    return true;
+  }
+
+  return false;
+}
+
 function toolMsg(callId: string, content: string): ChatMsg {
   return {
     role: 'tool',
@@ -146,97 +277,109 @@ export async function runAgent(
   let text = '';
   const allQueriedEntities: string[] = [];
 
-  const tSearchStart = Date.now();
+  const bypassSearch = shouldBypassSearch(ctx.userText);
 
-  try {
-    for (;;) {
-      if (searchSignal.aborted) break;
-
-      const toolsOn = cfg.features.search && !budget.exhausted && invalidStrikes < 2;
-
-      // If search is not allowed / exhausted and we already did a round of searches,
-      // break out of the search loop so the dedicated write phase handles final answer generation.
-      if (!toolsOn && budget.rounds > 0) {
-        break;
-      }
-
-      if (toolsOn && budget.rounds === 0) {
-        emit('status', { step: 'search', state: 'active', detail: 'round 1' });
-      }
-
-      const round = await streamRound({
-        messages,
-        tools: toolsOn ? [WEB_SEARCH_TOOL] : undefined,
-        emit,
-        signal: searchSignal,
-      });
-
-      if (round.toolCalls.length === 0) {
-        text = round.content;
-        break;
-      }
-
-      if (!toolsOn) {
-        text = round.content;
-        break;
-      }
-
-      budget.rounds++;
-      messages.push({
-        role: 'assistant',
-        content: round.content || null,
-        tool_calls: round.toolCalls,
-      });
-
-      for (const call of round.toolCalls) {
-        const parsed = WebSearchArgs.safeParse(safeJson(call.function.arguments));
-        if (!parsed.success) {
-          invalidStrikes++;
-          messages.push(
-            toolMsg(call.id, makeInvalidArgsPrompt(briefZod(parsed.error)))
-          );
-          continue;
-        }
-
-        for (const q of parsed.data.queries) {
-          if (q.entity && !allQueriedEntities.includes(q.entity)) {
-            allQueriedEntities.push(q.entity);
-          }
-        }
-
-        const { run, dropped } = prioritise(parsed.data.queries, budget.room());
-        emit('status', {
-          step: 'search',
-          state: 'active',
-          detail: `round ${budget.rounds} · ${run.length} queries`,
-        });
-
-        const results = await runBatch(run, budget, searchSignal);
-        evidenceStore.add(results, budget);
-        emit('evidence', { items: evidenceStore.items });
-
-        messages.push(
-          toolMsg(call.id, formatToolResult(results, dropped, budget, allQueriedEntities))
-        );
-      }
-
-      if (budget.exhausted || searchSignal.aborted) {
-        break;
-      }
-    }
-  } catch (err: unknown) {
-    if (signal.aborted) throw err;
-    // If search deadline abort triggered, break out of search to final answer
-  } finally {
+  if (bypassSearch) {
     clearTimeout(searchDeadlineTimer);
     cleanupSearchSignal();
-  }
+    trace.push({ stage: 'search', ms: 0, note: 'bypassed' });
+    emit('status', {
+      step: 'search',
+      state: 'skipped',
+    });
+  } else {
+    const tSearchStart = Date.now();
 
-  trace.push({ stage: 'search', ms: Date.now() - tSearchStart });
-  emit('status', {
-    step: 'search',
-    state: cfg.features.search ? 'done' : 'skipped',
-  });
+    try {
+      for (;;) {
+        if (searchSignal.aborted) break;
+
+        const toolsOn = cfg.features.search && !budget.exhausted && invalidStrikes < 2;
+
+        // If search is not allowed / exhausted and we already did a round of searches,
+        // break out of the search loop so the dedicated write phase handles final answer generation.
+        if (!toolsOn && budget.rounds > 0) {
+          break;
+        }
+
+        if (toolsOn && budget.rounds === 0) {
+          emit('status', { step: 'search', state: 'active', detail: 'round 1' });
+        }
+
+        const round = await streamRound({
+          messages,
+          tools: toolsOn ? [WEB_SEARCH_TOOL] : undefined,
+          emit,
+          signal: searchSignal,
+        });
+
+        if (round.toolCalls.length === 0) {
+          text = round.content;
+          break;
+        }
+
+        if (!toolsOn) {
+          text = round.content;
+          break;
+        }
+
+        budget.rounds++;
+        messages.push({
+          role: 'assistant',
+          content: round.content || null,
+          tool_calls: round.toolCalls,
+        });
+
+        for (const call of round.toolCalls) {
+          const parsed = WebSearchArgs.safeParse(safeJson(call.function.arguments));
+          if (!parsed.success) {
+            invalidStrikes++;
+            messages.push(
+              toolMsg(call.id, makeInvalidArgsPrompt(briefZod(parsed.error)))
+            );
+            continue;
+          }
+
+          for (const q of parsed.data.queries) {
+            if (q.entity && !allQueriedEntities.includes(q.entity)) {
+              allQueriedEntities.push(q.entity);
+            }
+          }
+
+          const { run, dropped } = prioritise(parsed.data.queries, budget.room());
+          emit('status', {
+            step: 'search',
+            state: 'active',
+            detail: `round ${budget.rounds} · ${run.length} queries`,
+          });
+
+          const results = await runBatch(run, budget, searchSignal);
+          evidenceStore.add(results, budget);
+          emit('evidence', { items: evidenceStore.items });
+
+          messages.push(
+            toolMsg(call.id, formatToolResult(results, dropped, budget, allQueriedEntities))
+          );
+        }
+
+        if (budget.exhausted || searchSignal.aborted) {
+          break;
+        }
+      }
+    } catch (err: unknown) {
+      if (signal.aborted) throw err;
+      // If search deadline abort triggered, break out of search to final answer
+    } finally {
+      clearTimeout(searchDeadlineTimer);
+      cleanupSearchSignal();
+    }
+
+    trace.push({ stage: 'search', ms: Date.now() - tSearchStart });
+    emit('status', {
+      step: 'search',
+      state: cfg.features.search ? 'done' : 'skipped',
+    });
+  }
 
   const tWriteStart = Date.now();
   emit('status', { step: 'write', state: 'active' });
@@ -255,13 +398,15 @@ export async function runAgent(
 
   try {
     if (!text.trim()) {
-      let reason = 'the search budget is used';
-      if (budget.rounds >= budget.c.maxRounds) reason = 'the round limit is reached';
-      else if (budget.elapsed > budget.c.deadlineMs - budget.c.reserveForAnswerMs) reason = 'the time limit is reached';
-      else if (budget.evidenceChars >= budget.c.maxEvidenceChars) reason = 'the evidence budget is reached';
-      else if (invalidStrikes >= 2) reason = 'tool arguments were invalid twice';
+      if (!bypassSearch) {
+        let reason = 'the search budget is used';
+        if (budget.rounds >= budget.c.maxRounds) reason = 'the round limit is reached';
+        else if (budget.elapsed > budget.c.deadlineMs - budget.c.reserveForAnswerMs) reason = 'the time limit is reached';
+        else if (budget.evidenceChars >= budget.c.maxEvidenceChars) reason = 'the evidence budget is reached';
+        else if (invalidStrikes >= 2) reason = 'tool arguments were invalid twice';
 
-      messages.push({ role: 'system', content: makeForcedFinalPrompt(reason) });
+        messages.push({ role: 'system', content: makeForcedFinalPrompt(reason) });
+      }
 
       try {
         const finalRound = await streamRound({

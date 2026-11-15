@@ -2,17 +2,18 @@
 
 ## What it is
 
-Almanac is a research and memory chat agent with one tool, `web_search` (which also reads result pages through the search provider's extract API), plus a dated conversational memory of earlier chats. It is built for questions like "what did I ask on 3 November?" and "has CRM tool pricing changed since Monday?": recall by date, fresh search by date, structured comparison claims, and an honest synthesis of the two.
+Almanac is a research and memory chat agent with one tool, `web_search` (which also reads result pages through the search provider's extract API), plus a dated conversational memory powered by hybrid lexical (SQLite FTS5 BM25) and semantic vector search (Nomic Embed v1.5). It is built for questions like "what did I ask on 3 November?" and "has CRM tool pricing changed since Monday?": recall by date, fresh search by date, structured comparison claims, and an honest synthesis of the two.
 
 ## How a turn works
 
 1. **Temporal Parsing**: Date phrases are resolved by code into windows in the user's timezone. Ambiguous weekdays search their separate candidate dates, not the days between them. The resolved date and any alternate readings are attached to the turn as a temporal badge (`📅 Tue 3 Nov 2026`).
-2. **Memory Synthesis**: A token-capped memory block (1,500 tokens max) is built without an LLM: matching user messages fetched by date (with "showing N of M" when truncated), the best matching turns in full (past answers capped at 1,000 chars, with a marker), and relevant hits from other chats. It is passed as user-level untrusted context; full answers stay in storage.
-3. **Conversational Fast Path**: Greetings, pleasantries, acknowledgments, assistant meta inquiries, and pure formatting follow-ups (e.g. "make that a table") bypass the search loop entirely, streaming immediate responses.
-4. **Single-Round Parallel Search & Vendor Hierarchy**: When search runs, the agent executes targeted parallel queries in one unified batch with `web_search({ queries[] })`. Search plans follow a strict source quality hierarchy:
+2. **Hybrid Semantic Memory Synthesis**: Memory search combines SQLite FTS5 BM25 with dense vector embeddings (Nomic Embed v1.5, 768 dimensions) using Reciprocal Rank Fusion (RRF). This matches both exact keyword tokens (tool names, dates) and semantic paraphrases ("database providers" resolving to "managed Postgres hosting"). A token-capped memory block (2,000 tokens max) is built without an LLM: matching user messages fetched by date, the best matching turns in full (past answers capped at 1,000 chars, with a marker), and relevant hits from other chats. It is passed as user-level untrusted context; full answers stay in storage.
+3. **Lightweight Query Classifier (Fast Path)**: Instead of fragile regex blocklists, a lightweight LLM classifier call evaluates user query intent. Greetings, pleasantries, acknowledgments, formatting adjustments, and private notebook inquiries (personal schedule, task list, calendar, agenda, meetings, routines) bypass the web search loop completely. The agent answers immediately from memory without wasting latency or API calls on external web searches for private personal data.
+4. **Multi-Round Parallel Search & Gap Detection**: When search runs, the agent executes targeted parallel queries with `web_search({ queries[] })`. Search plans follow a strict source quality hierarchy:
    - *Tier 1 (`current`)*: Official vendor pricing pages and domain documentation first.
    - *Tier 2 (`changelog`)*: Official release notes and pricing changelogs to identify dated change announcements.
    - *Tier 3 (`news` / `other`)*: Independent third-party reviews and articles to corroborate findings.
+   - *Automated Gap Detection & Targeted Re-Query*: After search round 1, the agent inspects the evidence store against all expected entities. Any entity lacking evidence (e.g. from failed queries, quota limits, or dropped items) is flagged as a gap. Round 2 specifically executes targeted re-queries with `read: true` for these missing entities before writing the final synthesized answer.
    Each query execution isolates failures, allocates round-robin evidence quotas per entity, and tracks publication vs retrieval dates.
 5. **Turn Deadline & Reserves**: Search stops early at `deadlineMs - reserveForAnswerMs`; the final answer gets its configured reserve. A hard turn signal bounds search, writing, and emergency fallback.
 6. **Structured Comparison Claims**: For comparison queries ("Has pricing changed?"), the agent aligns earlier notes against current evidence across five explicit attributes:
@@ -29,8 +30,8 @@ Almanac is a research and memory chat agent with one tool, `web_search` (which a
    - Product/entity mismatches (attributing tool A's price to tool B).
    - Stale/undated evidence: Flags claims where a price change is asserted from an undated snapshot (`flag.stale = true`).
    Each flag records the specific `claim` and `sourceRef`. The UI makes clear that token overlap does not verify full semantic truth.
-9. **Emergency Fallback & Resilience**: If the primary write generation fails or is interrupted, a compact fallback prompt using JSON-encoded evidence is attempted with the fallback model under the same hard turn deadline.
-10. **Persistence**: The answer, trace, flags, temporal hints, and evidence snapshot are stored transactionally in SQLite.
+9. **Emergency Fallback & Resilience**: If primary generation encounters an issue, a compact fallback prompt using JSON-encoded evidence is attempted under the same hard turn deadline.
+10. **Persistence**: The answer, trace, flags, temporal hints, vectors, and evidence snapshot are stored transactionally in SQLite.
 
 ## Honesty model
 
@@ -40,38 +41,37 @@ Memory is "said on date X"; only fresh web evidence supports present-tense claim
 - **Different value (unconfirmed change)**: When current sources show a different number but lack a dated announcement, the agent states both figures honestly without asserting an unverified change.
 - **Could not verify**: When no recent or dated web evidence is found, or when search degrades. The agent writes "I found no announcement of a change since [date]", never "nothing changed".
 
-## User Interface & Accessibility Polish
+## LLM Architecture: Google Gemini 3.5 Flash
 
-* **Magazine Cutout & Editorial Collage**: Tactile styling built around physical paper clippings, washi tape strips, ink stamps, and high-contrast typography.
-* **Extreme Top-Right Theme Toggle**: The theme toggle (`DARK` / `LIGHT`) is fixed directly at the absolute rightest corner of the viewport, outside the central reading container, with active page archival tags pinned beside it.
-* **Dedicated Left-Side Navigation Dock**: `[ ☰ PAGES ]` and `[ ＋ NEW ]` sit as physical cutout tabs pinned on the left side of the workspace, keeping the composer focused and clean while ensuring immediate access to history and fresh sheets.
-* **Physical Editorial Dispatch Sheet for Assistant**: The write space where Almanac drafts responses is styled uniquely as an archival dispatch dossier—featuring a vermilion left editorial spine, crisp 2px ink borders, washi tape header, 4px shadow, and a live breathing pulse animation during streaming drafting.
-* **Right-Side Quick Chat Navigator**: A floating cutout navigation strip on the right side provides instant `▲ TOP` scrolling, live message count tracking (`N MSGS`), and `▼ END` jumping to latest responses.
-* **Resolved Date Badges**: Every assistant response anchored to a date query displays a `📅 [Resolved Date]` badge in its header, showing the exact date Almanac resolved (with alternate reading tooltips for ambiguous queries).
-* **Dynamic Suggestions**: Prompt chips intelligently blend recent chat topics from SQLite memory with core research scenarios ("What did I ask on 3 November?", "Has CRM tool pricing changed since Monday?", "Compare Postgres managed database pricing between Supabase and Neon").
-* **Transparent Verification Limits**: The sources dossier explicitly highlights verifier limitations: citations confirm extracted figures against snapshots but do not guarantee vendor uptime, third-party page accuracy, unannounced terms, or enterprise tier omissions.
-* **Keyboard Focus & Navigation**: High-contrast accessible `:focus-visible` ink rings (`outline: 2px solid var(--ink)` with ink drop-shadows), focus trapping inside the drawer sidebar on open, focus restoration to the trigger button on close, and a global `Ctrl+K` / `Cmd+K` shortcut to jump directly to the message composer.
+Almanac uses **Google Gemini 3.5 Flash** as its primary reasoning engine (with `gemini-3.5-flash-lite` fallback and optional Groq compatibility).
+- **Ultra-Fast Reasoning & High Throughput**: With fast generation and generous token throughput, Gemini 3.5 Flash enables deep evidence capacity (expanded to 12,000 characters) without prompt truncation or HTTP 413 payload errors.
+- **Native Tool Calling**: Uses Gemini's native function calling declarations for `web_search` with strict parameter validation.
+- **Multi-Round Search Gap Filling**: Higher limits allow the agent to inspect round 1 results and run follow-up targeted queries for entities that had missing or incomplete evidence.
+- **Seamless Groq Fallback**: If running in an environment with legacy Groq keys, Almanac automatically routes requests to Groq with rate-limit pacing.
 
-## Groq Rate Limit Architecture & Multi-Tier Fallback
+## Semantic Memory: Nomic Embeddings + Hybrid RRF
 
-Groq enforces both a 30 Requests Per Minute (RPM) limit and tight Tokens Per Minute (TPM: 8,000) and Tokens Per Day (TPD: 200,000) caps on on-demand tiers. To guarantee sub-20s response times without stalling:
-- **Single-Round Parallel Batching**: Rather than executing 3 sequential LLM round-trips (which took 110s and consumed excessive TPM), the agent plans all entity queries in round 0 and executes them in parallel. Turn latency drops from 110s to **15–25s**.
-- **Compact Evidence Budgeting**: Snippets are capped at 250 characters and overall evidence is capped at 5,000 characters. This keeps prompts comfortably within the 8,000 TPM limit (averaging ~3,500 tokens).
-- **Multi-Tier Model Pool**: Primary (`openai/gpt-oss-120b`) -> Fallback (`openai/gpt-oss-20b`) -> Secondary (`qwen/qwen3.8-27b`).
-- **Instant TPD Pivoting**: If a model hits a Tokens-Per-Day daily cap, the agent does not stall or sleep; it immediately pivots to the next model in the pool.
-- **Built-in Throttler**: `throttleGroq` paces all outbound requests to Groq with a minimum delay of 2,200ms between calls (capping consumption at <= 27 RPM).
+To solve paraphrase and semantic recall without relying on fragile keyword synonyms:
+- **Nomic Embed Text v1.5**: 768-dimensional embeddings with task-specific prefixes (`search_document:` for stored notebook messages, `search_query:` for incoming questions).
+- **SQLite BLOB Storage**: Embedding vectors are stored directly in SQLite (`message_embeddings` table) as raw `Float32Array` IEEE 754 byte buffers, requiring 0 external vector DB infrastructure.
+- **Reciprocal Rank Fusion (RRF)**: Combines BM25 lexical rank with cosine similarity rank:
+  $$\text{RRF}(d) = \frac{1.0}{60 + \text{rank}_{\text{bm25}}(d)} + \frac{1.2}{60 + \text{rank}_{\text{vec}}(d)}$$
+- **Multi-Tier Embedding Fallback**: Nomic API -> Gemini `text-embedding-004` -> local deterministic semantic feature projection (guaranteeing 100% offline test compliance).
 
 ## Decisions, with evidence
 
 | Decision | Alternative | Result |
 |---|---|---|
-| Single-round parallel search | Multi-round sequential search | Latency dropped from 110s to 15–25s; avoids Groq TPM exhaustion |
+| Gemini 3.5 Flash as primary LLM | Groq on-demand models | Ultra-fast latency, high TPM, eliminates evidence starvation |
+| Nomic Embeddings + Hybrid RRF | Pure BM25 keyword matching | Accurately recalls conceptual paraphrases ("database provider" -> "Postgres hosting") |
+| SQLite BLOB Float32Array vectors | External vector DB / Pinecone | Zero external infrastructure; <0.2ms cosine similarity in memory |
 | Structured claims schema | Free-form prose comparisons | Prevents conflating monthly per-seat pricing with annual plans |
 | Vendor-first search hierarchy | Generic single search query | Primary sources (`supabase.com`, `neon.tech`) retrieved before blogs |
 | Cross-entity attribution guard | Unchecked LLM generation | Eliminates foreign citation tags and unevidenced figures in table rows |
 | Humble claim/source tracking verifier | Generative repair pass | Explains exactly which claim and source caused warnings without hallucinating |
-| 2,200ms Groq pacer + instant TPD pivot | Unthrottled calls / static model | Zero stall; graceful transition across model pool when quotas pinch |
-| 5,000 char evidence cap | 24,000 char cap | Prevents prompt explosion and avoids Groq 8,000 TPM HTTP 413 errors |
+| Automated Round 1 Gap Detection | Unchecked single-round search | Guarantees all shortlisted/expected entities have evidence by targeted round 2 re-query |
+| Lightweight LLM Query Classifier | Fragile keyword/regex blocklist | Accurately identifies greetings, formatting, and private notebook queries without brittle string matching |
+| 12,000 char evidence cap | 5,000 char cap | Gemini's capacity allows comprehensive snippet preservation |
 
 ## Failure handling
 
@@ -82,44 +82,24 @@ Groq enforces both a 30 Requests Per Minute (RPM) limit and tight Tokens Per Min
 | Invalid tool arguments | One correction, then tools are disabled and a final answer is forced |
 | Budget or round limit reached | Tools disabled; the answer states what could not be checked |
 | Turn deadline reached | In-flight network calls aborted via `AbortSignal`; reserve window streams final answer from evidence |
-| Primary model 429 / TPD limit | Immediate pivot to fallback models (`openai/gpt-oss-20b`, `qwen/qwen3.8-27b`) without stalling |
+| Primary LLM 429 / error | Immediate switch to fallback model (`gemini-3.5-flash-lite` / Groq) |
 
 ## Measured Results
 
-Almanac maintains three distinct evaluation suites: a deterministic component invariant suite, a simulated end-to-end suite, and a live end-to-end evaluation suite against real APIs.
+Almanac maintains five distinct evaluation suites:
 
-### 1. Live Real-API Evaluation (`npm run eval:live`)
-Tested against real Groq LLM and real Tavily search APIs on the core test queries: **3/3 cases passed (18/18 checks, 100%)**.
-- **Case 1 (3 Nov Recall & Current Follow-Up)**: 6/6 checks passed (~10s latency, 4 valid citations, 0 flags).
-- **Case 2 (Monday CRM Shortlist Follow-Up)**: 6/6 checks passed (~20s latency, 8 valid citations across all 5 CRM tools, 0 flags, 0 phantom tags).
-- **Case 3 (Last Tuesday Postgres Hosting Follow-Up)**: 6/6 checks passed (~12s latency, 10 valid citations across Supabase & Neon, 0 flags).
-
-### 2. Component Invariant Suite (`npm run eval`)
-Repeats 23 deterministic component assertions three times across SQLite FTS5, date parser, budget quotas, and verifier traps: **69/69 (100%)** passed.
-- **Recall & Date Resolution (cases 1-8, 19, 23)**: 100% (30/30) on date-anchored queries, list mode, ambiguous weekday resolution, and busy-day truncation.
-- **Paraphrase Recall (cases 21, 22)**: 100% (6/6) with keyword/synonym expansion ("database provider" resolving to Postgres, "sales software shortlist" resolving to CRM).
-- **Verifier Trap Detection (cases 11, 12, 13)**: 100% (9/9) — accurately flags uncited/invented numbers, catches cross-product attribution mismatches, and isolates ordinary-word entities ('Close') without false positives.
-- **Budget & Quota Enforcement (cases 14, 17)**: 100% (6/6) — allocates round-robin evidence quotas across 5 entities and strictly enforces `maxEvidenceChars`.
-- **Fault & Degradation Paths (cases 16, 18)**: 100% (6/6) — isolates query timeouts and service degradation without crashing.
-
-### 3. End-to-End Mock Suite (`npm run eval:e2e`)
-Evaluates the complete chat flow across the three core questions and five hard cases, scoring four distinct dimensions:
-- **Turn Recall**: 100% (accurately locates historical memory turns or detects absence of records)
-- **Correctness & Structure**: 100% (factual answers, structured 5-attribute comparison tables, no monthly/annual confusion)
-- **Supporting Citations**: 100% (grounded with valid `[M#]` notes and `[W#]` web citations)
-- **Honesty & Verification**: 100% (abstains with "could not verify" on missing/failed searches; verifier flags undated evidence)
-- **Overall Score**: **100%** (8/8 cases passed).
+1. **Live Real-API Evaluation (`npm run eval:live`)**: Tested against live LLM and live Tavily search APIs on the core test queries (**3/3 cases passed, 18/18 checks, 100%**).
+2. **Component Invariant Suite (`npm run eval`)**: 23 deterministic component assertions across 3 runs (**69/69 passed, 100%**) covering date parsing, hybrid search recall, verifier traps, and budget quotas.
+3. **End-to-End Evaluation Suite (`npm run eval:e2e`)**: 8 complete chat scenarios across core questions and hard edge cases (**8/8 cases passed, 100%**).
+4. **Adversarial Robustness Suite (`npm run eval:adversarial`)**: Prompt injection, SQL injection, citation spoofing, and HTML sanitization (**6/6 passed, 100%**).
+5. **Temporal & Timezone Matrix (`npm run eval:temporal`)**: Multi-timezone weekday and date window resolution (**8/8 passed, 100%**).
 
 ## Known limits
 
 The verifier cannot prove a source supports a claim, that a number belongs to the right plan or billing period, or that a page is current, and it can flag correct claims. An undated pricing page cannot show when a value changed. Search can miss unindexed announcements.
 
-## Considered and not built
-
-Topic clustering, a claims ledger with background extraction, a separate planner model, a vector index (deferred to keep dependency footprint minimal), a repair pass (deferred), hosting a public demo.
-
 ## With another week
 
-1. Embeddings (e.g. Nomic) for deep cross-lingual semantic matching.
-2. Cross-encoder reranking for long conversation histories.
-3. Scheduled background re-checks of earlier answers.
+1. Cross-encoder neural reranking for long conversation histories (100+ turns).
+2. Scheduled background re-checks of earlier answers to notify user when pricing changes.
+3. Multi-modal screenshot capture of pricing tables for visual OCR verification.

@@ -52,6 +52,22 @@ describe('Date Resolver (time.ts)', () => {
     expect(nov3).toBeDefined();
   });
 
+  it('resolves explicit date variations for 3 Nov uniformly', () => {
+    const variants = [
+      'what did i ask you on 3 nov',
+      'What did I ask on 3 November?',
+      'what did I ask on 3rd November',
+      'what did I ask on Nov 3rd?',
+      'what did I ask on November 3',
+      'what did I ask on November 3rd?',
+    ];
+    for (const q of variants) {
+      const hints = resolveDateHints(q, frozenNow, tzUTC);
+      const nov3 = hints.find(h => h.label.includes('3 Nov 2026'));
+      expect(nov3, `Failed to resolve 3 Nov 2026 for: ${q}`).toBeDefined();
+    }
+  });
+
   it('resolves explicit future date with no year "20 December" to previous year (20 Dec 2025)', () => {
     const hints = resolveDateHints('notes from 20 December', frozenNow, tzUTC);
     const dec = hints.find(h => h.label.includes('20 Dec'));

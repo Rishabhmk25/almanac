@@ -19,14 +19,15 @@ import {
   addMessage,
   recentMessages,
   saveAnswer,
+  ensureEmbeddingsIndexed,
   EvidenceItem,
   Flag,
   TraceStep,
 } from './memory/store.js';
 import { resolveDateHints } from './agent/time.js';
-import { buildMemoryContext } from './memory/inject.js';
+import { buildMemoryContextAsync } from './memory/inject.js';
 import { runAgent } from './agent/loop.js';
-import { checkModels } from './llm/groq.js';
+import { checkModels } from './llm/gemini.js';
 
 // The API has no user authentication, so only bind to loopback.
 if (!['127.0.0.1', 'localhost', '::1'].includes(cfg.host)) {
@@ -170,14 +171,42 @@ app.post('/api/chat', async c => {
   const userMsgTime = now();
   addMessage(conv.id, 'user', message, { id: userMsgId, createdAt: userMsgTime });
 
-  const hints = resolveDateHints(message, userMsgTime, tz);
+  let hints = resolveDateHints(message, userMsgTime, tz);
+  let effectiveMemoryQuery = message;
+  let effectiveAgentText = message;
+
+  // Multi-turn context resolution:
+  // If the user's current message has no temporal hints, check whether this turn is
+  // a retry ("try again", "retry") or a conversational follow-up ("what else", "tell me more",
+  // "did I mention X", "that day") that inherits date context from the preceding turn.
+  if (hints.length === 0 && recentBefore.length > 0) {
+    const prevUserMsg = [...recentBefore].reverse().find(m => m.role === 'user');
+    if (prevUserMsg) {
+      const prevHints = resolveDateHints(prevUserMsg.content, userMsgTime, tz);
+      const isRetry = /^(?:try\s+again|retry|redo|re-run|again|once\s+more|please\s+try\s+again)[.?!]*$/i.test(message.trim());
+      const isFollowUp =
+        isRetry ||
+        /\b(?:that\s+day|that\s+date|then|at\s+that\s+time|what\s+else|anything\s+else|tell\s+me\s+more|more\s+details|who\s+else|did\s+i\s+(?:also|mention|say|ask)|and\s+on\s+that\s+day)\b/i.test(message) ||
+        message.trim().split(/\s+/).length <= 6;
+
+      if (prevHints.length > 0 && isFollowUp) {
+        hints = prevHints;
+        effectiveMemoryQuery = isRetry ? prevUserMsg.content : `${prevUserMsg.content} ${message}`;
+        if (isRetry) effectiveAgentText = prevUserMsg.content;
+      } else if (isRetry) {
+        effectiveMemoryQuery = prevUserMsg.content;
+        effectiveAgentText = prevUserMsg.content;
+      }
+    }
+  }
+
   const temporalPayload = hints.map(h => ({
     phrase: h.phrase,
     label: h.label,
     alt: h.alt ? { phrase: h.alt.phrase, label: h.alt.label } : undefined,
   }));
   const excludeIds = [userMsgId, ...recentBefore.map(m => m.id)];
-  const memoryContext = buildMemoryContext(message, hints, conv.id, excludeIds, tz);
+  const memoryContext = await buildMemoryContextAsync(effectiveMemoryQuery, hints, conv.id, excludeIds, tz);
 
   const assistantMsgId = crypto.randomUUID();
 
@@ -187,7 +216,7 @@ app.post('/api/chat', async c => {
       const res = await runAgent(
         {
           conversationId: conv.id,
-          userText: message,
+          userText: effectiveAgentText,
           contextBlock: memoryContext.contextBlock,
           memoryItems: memoryContext.memoryItems,
           history: recentBefore,
@@ -266,7 +295,7 @@ app.post('/api/chat', async c => {
       const res = await runAgent(
         {
           conversationId: conv.id,
-          userText: message,
+          userText: effectiveAgentText,
           contextBlock: memoryContext.contextBlock,
           memoryItems: memoryContext.memoryItems,
           history: recentBefore,
@@ -417,6 +446,7 @@ app.get('/app.js', c => {
 });
 
 checkModels().catch(() => {});
+ensureEmbeddingsIndexed().catch(() => {});
 
 console.log(`Almanac starting on http://${cfg.host}:${cfg.port}`);
 serve({

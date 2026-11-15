@@ -217,6 +217,16 @@ export function resolveDateHints(text: string, nowMs: number, tz: string): Tempo
     }
   }
 
-  return hints;
+  // Deduplicate hints by label to prevent duplicate UI badges
+  const seenLabels = new Set<string>();
+  const deduped: TemporalHint[] = [];
+  for (const h of hints) {
+    if (!seenLabels.has(h.label)) {
+      seenLabels.add(h.label);
+      deduped.push(h);
+    }
+  }
+
+  return deduped;
 }
 

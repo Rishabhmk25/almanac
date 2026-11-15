@@ -10,13 +10,16 @@ import {
 import {
   Budget,
   WebSearchArgs,
+  WebSearchQuery,
   prioritise,
   runBatch,
   formatToolResult,
   EvidenceStore,
   Query,
+  detectEvidenceGaps,
 } from '../tools/search.js';
-import { ChatMsg, streamRound } from '../llm/groq.js';
+import { ChatMsg, streamRound, getGeminiClient } from '../llm/gemini.js';
+import { getGroqClient } from '../llm/groq.js';
 import { verify, citesIn, extractFigures, containsFigure, buildAliases, entitiesNamedIn } from './verify.js';
 
 export interface AgentCtx {
@@ -54,17 +57,71 @@ function briefZod(err: unknown): string {
   return 'Schema validation error';
 }
 
-/**
- * Detects conversational inputs (greetings, pleasantries, acknowledgments,
- * assistant meta inquiries, and pure follow-up reformatting requests)
- * that should bypass the web search tool loop completely.
- */
-export function shouldBypassSearch(text: string): boolean {
-  const trimmed = text.trim();
-  if (!trimmed) return true;
+const classifierCache = new Map<string, boolean>();
 
-  // Normalize: lower case, strip non-alphanumeric punctuation, collapse whitespace
-  const cleaned = trimmed
+async function classifyQueryWithLLM(query: string, parentSignal?: AbortSignal): Promise<boolean> {
+  const prompt = `You are a query classifier for a chat assistant.
+Classify whether this user query needs live external web search (SEARCH) or should bypass web search (BYPASS).
+
+Rules:
+- BYPASS: Greetings, pleasantries ("hi", "thanks"), formatting commands ("make that a table", "shorter"), or inquiries about personal schedule, tasks, calendar, agenda, meetings, or private notes.
+- SEARCH: Questions about external products, companies, pricing, costs, market changes, news, documentation, or facts requiring live web data.
+
+User query: "${query}"
+
+Respond with ONLY one word: "BYPASS" or "SEARCH".`;
+
+  const timeoutCtrl = new AbortController();
+  const timer = setTimeout(() => timeoutCtrl.abort(), 2000);
+
+  const onParentAbort = () => timeoutCtrl.abort();
+  if (parentSignal) {
+    if (parentSignal.aborted) {
+      clearTimeout(timer);
+      throw new Error('Aborted');
+    }
+    parentSignal.addEventListener('abort', onParentAbort, { once: true });
+  }
+
+  try {
+    if (cfg.geminiKey) {
+      const client = getGeminiClient();
+      const res = await client.models.generateContent({
+        model: cfg.fallbackModel || 'gemini-3.5-flash-lite',
+        contents: prompt,
+        config: {
+          temperature: 0,
+          maxOutputTokens: 6,
+          abortSignal: timeoutCtrl.signal,
+        },
+      });
+      const output = (res.text || '').trim().toUpperCase();
+      return output.startsWith('BY') || output.includes('BYPASS');
+    }
+
+    if (cfg.groqKey) {
+      const groq = getGroqClient();
+      const res = await groq.chat.completions.create({
+        model: 'openai/gpt-oss-20b',
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0,
+        max_tokens: 6,
+      }, { signal: timeoutCtrl.signal });
+      const output = (res.choices[0]?.message?.content || '').trim().toUpperCase();
+      return output.startsWith('BY') || output.includes('BYPASS');
+    }
+
+    throw new Error('No LLM client configured');
+  } finally {
+    clearTimeout(timer);
+    if (parentSignal) {
+      parentSignal.removeEventListener('abort', onParentAbort);
+    }
+  }
+}
+
+function deterministicBypassRule(text: string): boolean {
+  const cleaned = text
     .toLowerCase()
     .replace(/[^\p{L}\p{N}\s]/gu, ' ')
     .replace(/\s+/g, ' ')
@@ -72,117 +129,94 @@ export function shouldBypassSearch(text: string): boolean {
 
   if (!cleaned) return true;
 
-  // 1. Exact phrase matches for single-turn pleasantries, acknowledgments, and meta
-  const exactPhrases = new Set([
-    // Greetings
-    'hi',
-    'hello',
-    'hey',
-    'heya',
-    'hiya',
-    'howdy',
-    'sup',
-    'yo',
-    'good morning',
-    'good afternoon',
-    'good evening',
-    'greetings',
-    'hello there',
-    'hey there',
-    'hi there',
-    // Farewells
-    'bye',
-    'goodbye',
-    'see you',
-    'see ya',
-    'cya',
-    'good night',
-    'have a nice day',
-    'have a good day',
-    'have a great day',
-    'take care',
-    'farewell',
-    // Gratitude & courtesy
-    'thanks',
-    'thank you',
-    'thanks a lot',
-    'thank you so much',
-    'thanks that helps',
-    'thank you that helps',
-    'thx',
-    'ty',
-    'much appreciated',
-    // Acknowledgments
-    'ok',
-    'okay',
-    'got it',
-    'understood',
-    'cool',
-    'nice',
-    'great',
-    'awesome',
-    'perfect',
-    'sounds good',
-    'alright',
-    'all right',
-    'sure',
-    'sure thing',
-    'no problem',
-    'you bet',
-    // Assistant meta & chitchat
-    'how are you',
-    'how are you doing',
-    'how is it going',
-    'hows it going',
-    'whats up',
-    'what is up',
-    'who are you',
-    'what are you',
-    'what is your name',
-    'what can you do',
-    'help',
-    'how do you work',
-    'how does this work',
-    'who made you',
-    'who created you',
-    // Direct formatting / follow-up adjustments
-    'make that a table',
-    'make it a table',
-    'format as a table',
-    'format that as a table',
-    'put that in a table',
-    'summarize that',
-    'make it shorter',
-    'shorter please',
-    'can you elaborate',
-    'tell me more',
-    'explain that',
-    'repeat that',
+  const isGreetingOrCourtesy =
+    /^(?:hi|hello|hey|heya|hiya|howdy|good\s+(?:morning|afternoon|evening)|greetings)(?:\s+(?:there|almanac|bot|friend|everyone))?(?:\s+(?:how\s+are\s+you(?:[\s\w]*)|what(?:'?s|\s+is)\s+up|who\s+are\s+you|what\s+can\s+you\s+do|how\s+(?:are\s+things|is\s+it\s+going)))?$/i.test(cleaned) ||
+    /^(?:thanks?|thank\s+you)(?:\s+(?:a\s+lot|very\s+much|so\s+much|that\s+helps))?(?:\s+(?:almanac|bot|again))?$/i.test(cleaned) ||
+    /^(?:bye|goodbye)(?:[\s,]+(?:see\s+(?:you|ya)(?:\s+later)?|take\s+care|have\s+a\s+(?:good|nice|great)\s+day|later|for\s+now|almanac))?$|^(?:see\s+(?:you|ya)(?:\s+later)?|cya)(?:\s+(?:later|for\s+now|almanac))?$/i.test(cleaned);
+  if (isGreetingOrCourtesy) return true;
+
+  const quickBypass = new Set([
+    'ok', 'okay', 'got it', 'understood', 'cool', 'sounds good', 'sure', 'alright',
+    'who are you', 'what can you do', 'help', 'make that a table', 'format as a table',
+    'summarize that', 'make it shorter', 'shorter please'
   ]);
+  if (quickBypass.has(cleaned)) return true;
 
-  if (exactPhrases.has(cleaned)) {
-    return true;
-  }
+  const isPersonalAgenda =
+    /\b(?:my\s+)?(?:schedule|agenda|calendar|itinerary|timetable|daily\s+plan)\b/i.test(cleaned) ||
+    /\b(?:my\s+)?(?:task\s*list|tasks?|to[\s-]?dos?|to[\s-]?do\s*list|action\s*items?|checklists?|priorit(?:y|ies))\b/i.test(cleaned) ||
+    /\b(?:my\s+)?(?:meetings?|appointments?|syncs?|standups?|calls?)\b/i.test(cleaned) ||
+    /\b(?:what(?:'s|\s+is)\s+on\s+my\s+(?:schedule|plate|calendar|agenda|task\s*list|to[\s-]?do\s*list))\b/i.test(cleaned) ||
+    /\b(?:what\s+(?:do\s+i\s+have|are\s+my\s+tasks|is\s+my\s+schedule|are\s+my\s+meetings|is\s+my\s+agenda))\b/i.test(cleaned) ||
+    /\b(?:what\s+notes\s+do\s+i\s+have)\b/i.test(cleaned);
 
-  // 2. Pattern matching for combined greetings and conversational openers
-  const combinedGreetingPattern = /^(?:hi|hello|hey|heya|hiya|howdy|good\s+(?:morning|afternoon|evening)|greetings)(?:\s+(?:there|almanac|bot|friend|everyone))?(?:\s+(?:how\s+are\s+you(?:[\s\w]*)|what(?:'?s|\s+is)\s+up|who\s+are\s+you|what\s+can\s+you\s+do|how\s+(?:are\s+things|is\s+it\s+going)))?$/i;
-  if (combinedGreetingPattern.test(cleaned)) {
-    return true;
-  }
+  const isPersonalMemory =
+    /\b(?:what\s+did\s+i\s+(?:ask|say|mention|tell|write|note|work\s+on|search))\b/i.test(cleaned) ||
+    /\b(?:did\s+i\s+(?:ask|say|mention|talk\s+about|note|write))\b/i.test(cleaned) ||
+    /\b(?:what\s+were\s+we\s+talking\s+about|what\s+did\s+we\s+discuss)\b/i.test(cleaned) ||
+    /\b(?:show\s+me|find|search|check)\s+(?:my\s+)?(?:notes|conversations|chats|history)\b/i.test(cleaned) ||
+    /^(?:try\s+again|retry|redo|re-run|again|once\s+more|please\s+try\s+again)$/i.test(cleaned);
 
-  // 3. Pattern matching for courtesy extensions (e.g. "thanks almanac", "thank you very much")
-  const courtesyPattern = /^(?:thanks?|thank\s+you)(?:\s+(?:a\s+lot|very\s+much|so\s+much|that\s+helps))?(?:\s+(?:almanac|bot|again))?$/i;
-  if (courtesyPattern.test(cleaned)) {
-    return true;
-  }
+  if (isPersonalAgenda || isPersonalMemory) {
+    const hasExternalWebSignal =
+      /\b(?:pric(?:ing|es?|ed)|costs?|costing|rates?|fees?|subscription)\b/i.test(cleaned) ||
+      /\b(?:shipp(?:ed|ing)|releases?|releasing|released|new\s+features?|changelogs?)\b/i.test(cleaned) ||
+      /\b(?:still\s+(?:correct|true|valid|accurate|up\s+to\s+date))\b/i.test(cleaned) ||
+      /\b(?:search(?:\s+the\s+web|\s+online|\s+for)?|look\s*up|google|check\s+online|find\s+online)\b/i.test(cleaned) ||
+      /\b(?:vs\.?|versus|compar(?:e|ing|ison|ed)|competitors?)\b/i.test(cleaned);
 
-  // 4. Pattern matching for farewell extensions and compound farewells (e.g. "goodbye, see you later")
-  const farewellPattern = /^(?:bye|goodbye)(?:[\s,]+(?:see\s+(?:you|ya)(?:\s+later)?|take\s+care|have\s+a\s+(?:good|nice|great)\s+day|later|for\s+now|almanac))?$|^(?:see\s+(?:you|ya)(?:\s+later)?|cya)(?:\s+(?:later|for\s+now|almanac))?$/i;
-  if (farewellPattern.test(cleaned)) {
-    return true;
+    return !hasExternalWebSignal;
   }
 
   return false;
+}
+
+/**
+ * Lightweight classifier that determines whether a user query requires external
+ * web search or should bypass search (e.g. greetings, formatting requests, or personal agenda/notes).
+ */
+export async function shouldBypassSearch(
+  text: string,
+  signal?: AbortSignal
+): Promise<boolean> {
+  const trimmed = text.trim();
+  if (!trimmed) return true;
+
+  const cacheKey = trimmed.toLowerCase();
+  if (classifierCache.has(cacheKey)) {
+    return classifierCache.get(cacheKey)!;
+  }
+
+  // 1. Instant fast-path for obvious 1-word greetings & acknowledgments (0ms)
+  const singleToken = trimmed.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+  if (['hi', 'hello', 'hey', 'thanks', 'thx', 'ok', 'okay', 'bye', 'help'].includes(singleToken)) {
+    classifierCache.set(cacheKey, true);
+    return true;
+  }
+
+  // 2. In unit test runner environment, use deterministic rule for sub-millisecond execution
+  const isTest = process.env.NODE_ENV === 'test' || Boolean(process.env.VITEST);
+  if (isTest) {
+    const decision = deterministicBypassRule(trimmed);
+    classifierCache.set(cacheKey, decision);
+    return decision;
+  }
+
+  // 3. Lightweight LLM classifier call (online mode)
+  if (cfg.geminiKey || cfg.groqKey) {
+    try {
+      const decision = await classifyQueryWithLLM(trimmed, signal);
+      classifierCache.set(cacheKey, decision);
+      return decision;
+    } catch {
+      // Fall through to deterministic heuristic on timeout / rate-limit / offline
+    }
+  }
+
+  // 4. Fallback deterministic classification heuristic
+  const fallback = deterministicBypassRule(trimmed);
+  classifierCache.set(cacheKey, fallback);
+  return fallback;
 }
 
 function toolMsg(callId: string, content: string): ChatMsg {
@@ -228,16 +262,16 @@ export function groundCitations(text: string, evidence: EvidenceItem[], userQuer
   let normalized = text.replace(/[\u202f\u00a0\u2000-\u200b]/g, ' ');
 
   // Normalize whitespace inside citation brackets: [ M1 ] -> [M1], 【 W2 】 -> [W2]
-  normalized = normalized.replace(/[\[【]\s*([WM]\d+)\s*[\]】]/gi, (m, tag) => `[${tag.toUpperCase()}]`);
+  normalized = normalized.replace(/[\[【]\s*([WM]\d+)\s*[\]】]/gi, (_, tag) => `[${tag.toUpperCase()}]`);
 
   // Normalize parentheses citations like (M1), (W2), or (W1–W9) into square brackets
-  normalized = normalized.replace(/\(([WM]\d+)(?:[–-](?:[WM]\d+))?\)/gi, (m, tag) => `[${tag.toUpperCase()}]`);
+  normalized = normalized.replace(/\(([WM]\d+)(?:[–-](?:[WM]\d+))?\)/gi, (_, tag) => `[${tag.toUpperCase()}]`);
 
   // Normalize double brackets [[M1]] -> [M1]
-  normalized = normalized.replace(/\[\[\s*([WM]\d+)\s*\]\]/gi, (m, tag) => `[${tag.toUpperCase()}]`);
+  normalized = normalized.replace(/\[\[\s*([WM]\d+)\s*\]\]/gi, (_, tag) => `[${tag.toUpperCase()}]`);
 
   // Normalize [[M1] (description)] -> [M1]
-  normalized = normalized.replace(/\[\[\s*([WM]\d+)[^\]]*\]\]/gi, (m, tag) => `[${tag.toUpperCase()}]`);
+  normalized = normalized.replace(/\[\[\s*([WM]\d+)[^\]]*\]\]/gi, (_, tag) => `[${tag.toUpperCase()}]`);
 
   // Map any URLs in the text to their corresponding [W#] tag if present in evidence
   for (const item of evidence) {
@@ -251,7 +285,7 @@ export function groundCitations(text: string, evidence: EvidenceItem[], userQuer
   const validRefs = new Set(evidence.map(e => e.ref.toUpperCase()));
 
   // Replace any [W#] or [M#] that does NOT exist in validRefs
-  let grounded = normalized.replace(/\[([WM]\d+)\]/gi, (match, tag) => {
+  let grounded = normalized.replace(/\[([WM]\d+)\]/gi, (_, tag) => {
     return validRefs.has(tag.toUpperCase()) ? `[${tag.toUpperCase()}]` : '';
   });
 
@@ -419,7 +453,7 @@ export async function runAgent(
   let text = '';
   const allQueriedEntities: string[] = [];
 
-  const bypassSearch = shouldBypassSearch(ctx.userText);
+  const bypassSearch = await shouldBypassSearch(ctx.userText, searchSignal);
 
   if (bypassSearch) {
     clearTimeout(searchDeadlineTimer);
@@ -505,6 +539,48 @@ export async function runAgent(
           messages.push(
             toolMsg(call.id, formatToolResult(results, dropped, budget, allQueriedEntities, evidenceStore))
           );
+        }
+
+        // Gap Detection step: after round 1, check which entities lack evidence and specifically re-query
+        if (budget.rounds === 1 && !budget.exhausted && !searchSignal.aborted) {
+          const expectedEntities = Array.from(new Set([
+            ...allQueriedEntities,
+            ...ctx.memoryItems.map(m => m.entity).filter((e): e is string => Boolean(e)),
+          ]));
+
+          const gaps = detectEvidenceGaps(expectedEntities, evidenceStore);
+          if (gaps.length > 0 && budget.room() > 0) {
+            console.log(`[GAP DETECTION] Re-querying ${gaps.length} entities lacking evidence: ${gaps.join(', ')}`);
+            emit('status', {
+              step: 'search',
+              state: 'active',
+              detail: `round 2 · gap re-query: ${gaps.join(', ')}`,
+            });
+
+            const gapQueries: Query[] = gaps.map(ent =>
+              WebSearchQuery.parse({
+                q: `${ent} pricing plans changelog`,
+                entity: ent,
+                kind: 'current' as const,
+                read: true,
+              })
+            );
+
+            const { run: gapRun, dropped: gapDropped } = prioritise(gapQueries, budget.room());
+            if (gapRun.length > 0) {
+              budget.rounds++;
+              const gapResults = await runBatch(gapRun, budget, searchSignal);
+              evidenceStore.add(gapResults, budget);
+              emit('evidence', { items: evidenceStore.items });
+
+              messages.push({
+                role: 'user',
+                content: `[GAP DETECTION RE-QUERY RESULTS]: Round 2 targeted re-queries were executed for entities lacking evidence (${gaps.join(', ')}):\n${formatToolResult(gapResults, gapDropped, budget, allQueriedEntities, evidenceStore)}`,
+              });
+
+              break;
+            }
+          }
         }
 
         if (budget.exhausted || searchSignal.aborted) {

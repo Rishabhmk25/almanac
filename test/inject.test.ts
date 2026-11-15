@@ -60,6 +60,28 @@ describe('Memory Injection (inject.ts & store.ts)', () => {
     expect(res.memoryItems.length).toBeGreaterThanOrEqual(2);
   });
 
+  it('correctly injects list mode for retry or follow-up with inherited date hint', () => {
+    const conv = getOrCreateConversation(null, 'UTC', 'Test chat retry');
+    const t0 = Date.now() - 100_000;
+    addMessage(conv.id, 'user', 'What are good developer tools?', { createdAt: t0 });
+    addMessage(conv.id, 'user', 'How to configure workspace?', { createdAt: t0 + 1000 });
+
+    const hint: TemporalHint = {
+      phrase: 'on 3 November',
+      from: t0 - 10_000,
+      to: t0 + 20_000,
+      label: 'Tue 3 Nov 2026',
+    };
+
+    // When a retry happens and inherits the previous query and hint
+    const res = buildMemoryContext('What did I ask on 3 November?', [hint], conv.id, []);
+    expect(res.contextBlock).toContain('Showing');
+    expect(res.contextBlock).toContain('user messages on Tue 3 Nov 2026');
+    expect(res.memoryItems.length).toBeGreaterThanOrEqual(2);
+    expect(res.contextBlock).toContain('What are good developer tools?');
+    expect(res.contextBlock).toContain('How to configure workspace?');
+  });
+
   it('keeps ambiguous Thursday readings as two separate date windows', () => {
     const conv = getOrCreateConversation(null, 'UTC', 'Thursday chats');
     const thisThursday = Date.UTC(2026, 10, 12);
@@ -88,6 +110,22 @@ describe('Memory Injection (inject.ts & store.ts)', () => {
     expect(res.contextBlock).toContain('Question from this Thursday');
     expect(res.contextBlock).toContain('Question from last Thursday');
     expect(res.contextBlock).not.toContain('Unrelated question from Sunday');
+  });
+
+  it('isolates memory and returns 0 items for out-of-domain conceptual queries', () => {
+    const conv = getOrCreateConversation(null, 'UTC', 'CRM and dev setup');
+    addMessage(conv.id, 'user', 'We shortlisted HubSpot and Pipedrive for our sales team');
+    addMessage(conv.id, 'assistant', 'HubSpot and Pipedrive are strong CRM options');
+
+    // Out-of-domain query without date window
+    const outOfDomainQuery = 'How does CRISPR-Cas9 utilize guide RNA and PAM sequences?';
+    const hints: TemporalHint[] = [];
+    const res = buildMemoryContext(outOfDomainQuery, hints, conv.id);
+
+    // Must not inject CRM notes into a biological inquiry
+    expect(res.memoryItems).toHaveLength(0);
+    expect(res.contextBlock).not.toContain('HubSpot');
+    expect(res.contextBlock).not.toContain('Pipedrive');
   });
 });
 

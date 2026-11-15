@@ -1,6 +1,12 @@
 import crypto from 'node:crypto';
 import { getDb } from '../db/migrate.js';
 import { now } from '../clock.js';
+import {
+  embedText,
+  cosineSimilarity,
+  vectorToBlob,
+  blobToVector,
+} from './embeddings.js';
 
 export interface EvidenceItem {
   ref: string;                    // 'W1' | 'M1'
@@ -138,11 +144,6 @@ export function getOrCreateConversation(
   return { id: newId, title, tz: tz || 'UTC', createdAt: t, updatedAt: t };
 }
 
-export function updateConversationTitle(id: string, title: string): void {
-  const db = getDb();
-  db.prepare('UPDATE conversations SET title = ?, updated_at = ? WHERE id = ?').run(title.slice(0, 50), now(), id);
-}
-
 export function addMessage(
   convId: string,
   role: 'user' | 'assistant',
@@ -175,6 +176,12 @@ export function addMessage(
   `).run(msgId, convId, seq, role, content, msgTime, status, evJson, metaJson, imported, demo);
 
   db.prepare('UPDATE conversations SET updated_at = ? WHERE id = ?').run(msgTime, convId);
+
+  if (content && content.trim()) {
+    embedText(content, 'search_document')
+      .then(vec => storeEmbedding(msgId, vec))
+      .catch(() => {});
+  }
 
   return {
     id: msgId,
@@ -263,6 +270,138 @@ export function bm25(
   }>;
 
   return rows;
+}
+
+export function storeEmbedding(messageId: string, vector: Float32Array): void {
+  const db = getDb();
+  const blob = vectorToBlob(vector);
+  try {
+    db.prepare(`
+      INSERT INTO message_embeddings (message_id, dimensions, vector, created_at)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(message_id) DO UPDATE SET vector = excluded.vector, dimensions = excluded.dimensions
+    `).run(messageId, vector.length, blob, now());
+  } catch {
+    // Non-fatal if table not yet migrated
+  }
+}
+
+export function getEmbedding(messageId: string): Float32Array | null {
+  const db = getDb();
+  try {
+    const row = db.prepare('SELECT vector FROM message_embeddings WHERE message_id = ?').get(messageId) as { vector: Buffer } | undefined;
+    return row ? blobToVector(row.vector) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function vectorSearch(
+  queryVec: Float32Array,
+  win?: { from: number; to: number },
+  limit = 10,
+  excludeIds: string[] = []
+): Array<{ id: string; conversationId: string; seq: number; score: number }> {
+  const db = getDb();
+  const excludeJson = JSON.stringify(excludeIds);
+  const from = win ? win.from : null;
+  const to = win ? win.to : null;
+
+  try {
+    const rows = db.prepare(`
+      SELECT m.id, m.conversation_id AS conversationId, m.seq, e.vector
+      FROM message_embeddings e
+      JOIN messages m ON m.id = e.message_id
+      WHERE (:from IS NULL OR m.created_at >= :from)
+        AND (:to   IS NULL OR m.created_at <  :to)
+        AND m.id NOT IN (SELECT value FROM json_each(:exclude))
+    `).all({ from, to, exclude: excludeJson }) as Array<{
+      id: string;
+      conversationId: string;
+      seq: number;
+      vector: Buffer;
+    }>;
+
+    if (rows.length === 0) return [];
+
+    const MIN_SIMILARITY_THRESHOLD = 0.25;
+    const scored = rows
+      .map(r => {
+        const vec = blobToVector(r.vector);
+        const sim = cosineSimilarity(queryVec, vec);
+        return {
+          id: r.id,
+          conversationId: r.conversationId,
+          seq: r.seq,
+          score: sim,
+        };
+      })
+      .filter(r => r.score >= MIN_SIMILARITY_THRESHOLD);
+
+    scored.sort((a, b) => b.score - a.score);
+    return scored.slice(0, limit);
+  } catch {
+    return [];
+  }
+}
+
+export function hybridSearch(
+  ftsQ: string | null,
+  queryVec?: Float32Array | null,
+  win?: { from: number; to: number },
+  limit = 10,
+  excludeIds: string[] = []
+): Array<{ id: string; conversationId: string; seq: number; score: number }> {
+  const bm25Hits = ftsQ ? bm25(ftsQ, win, limit * 2, excludeIds) : [];
+  const vecHits = queryVec ? vectorSearch(queryVec, win, limit * 2, excludeIds) : [];
+
+  if (bm25Hits.length === 0 && vecHits.length === 0) return [];
+  if (bm25Hits.length === 0) return vecHits.slice(0, limit);
+  if (vecHits.length === 0) return bm25Hits.slice(0, limit);
+
+  // Reciprocal Rank Fusion (RRF): score = sum(weight / (60 + rank))
+  const rrfMap = new Map<string, { id: string; conversationId: string; seq: number; score: number }>();
+
+  bm25Hits.forEach((hit, rank) => {
+    const rrf = 1.0 / (60 + rank + 1);
+    rrfMap.set(hit.id, { ...hit, score: rrf });
+  });
+
+  vecHits.forEach((hit, rank) => {
+    const rrf = 1.2 / (60 + rank + 1); // Slight boost for semantic coherence
+    const existing = rrfMap.get(hit.id);
+    if (existing) {
+      existing.score += rrf;
+    } else {
+      rrfMap.set(hit.id, { ...hit, score: rrf });
+    }
+  });
+
+  const combined = Array.from(rrfMap.values());
+  combined.sort((a, b) => b.score - a.score);
+  return combined.slice(0, limit);
+}
+
+export async function ensureEmbeddingsIndexed(limit = 200): Promise<number> {
+  const db = getDb();
+  try {
+    const unindexed = db.prepare(`
+      SELECT id, content FROM messages
+      WHERE id NOT IN (SELECT message_id FROM message_embeddings)
+      ORDER BY created_at DESC
+      LIMIT ?
+    `).all(limit) as Array<{ id: string; content: string }>;
+
+    for (const m of unindexed) {
+      if (m.content && m.content.trim()) {
+        const vec = await embedText(m.content, 'search_document');
+        storeEmbedding(m.id, vec);
+      }
+    }
+    return unindexed.length;
+  } catch {
+    return 0;
+  }
 }
 
 export function turnOf(

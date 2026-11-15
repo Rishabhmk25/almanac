@@ -552,3 +552,36 @@ export function formatToolResult(
   return parts.join('\n').trim();
 }
 
+/**
+ * Checks which expected entities lack web evidence in the evidence store.
+ * An entity is considered covered if at least one web evidence item explicitly tags it
+ * or prominently mentions it in its title, domain, or snippet text.
+ */
+export function detectEvidenceGaps(
+  expectedEntities: string[],
+  evidenceStore: EvidenceStore
+): string[] {
+  if (!expectedEntities || expectedEntities.length === 0) return [];
+
+  const webItems = evidenceStore.items.filter(i => i.kind === 'web');
+  const covered = new Set<string>();
+
+  for (const item of webItems) {
+    if (item.entity) {
+      covered.add(item.entity.toLowerCase().trim());
+    }
+    const corpus = `${item.title} ${item.domain || ''} ${item.snippet}`.toLowerCase();
+    for (const ent of expectedEntities) {
+      const entLower = ent.toLowerCase().trim();
+      if (corpus.includes(entLower)) {
+        covered.add(entLower);
+      }
+    }
+  }
+
+  return expectedEntities.filter(ent => {
+    const entLower = ent.toLowerCase().trim();
+    return !covered.has(entLower);
+  });
+}
+

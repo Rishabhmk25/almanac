@@ -1,143 +1,421 @@
 {
-  "timestamp": "2026-11-15T21:23:12.136Z",
-  "mode": "mock",
-  "totalCases": 8,
-  "passedCases": 8,
-  "overallScorePercent": 100,
-  "dimensions": {
-    "turnRecall": 100,
-    "correctnessAndStructure": 100,
-    "supportingCitations": 100,
-    "honestyAndVerification": 100
-  },
+  "timestamp": "2026-11-15T22:43:07.634Z",
+  "mode": "live",
+  "model": "gemini-3.5-flash",
+  "casesRun": 3,
+  "passedCases": 1,
+  "passedChecks": 16,
+  "totalChecks": 18,
   "cases": [
     {
       "id": 1,
-      "name": "Sample 1: Date-anchored recall (3 November)",
-      "category": "core_question",
+      "name": "Nov 3 recall and current follow-up",
       "query": "What did I ask you on 3 November? Is your answer still correct today?",
-      "scores": {
-        "turnRecall": 100,
-        "correctnessAndStructure": 100,
-        "supportingCitations": 100,
-        "honestyAndVerification": 100
-      },
-      "passed": true,
-      "notes": "Hints: Sun 15 Nov 2026, Tue 3 Nov 2026, Sun 15 Nov 2026. Found 3 Nov topic. Citations present.",
-      "outputPreview": "On 3 November 2026, you asked about user feedback collection and roadmap software [M1]. We discussed Canny ($99/mo) and UserVoice [M1]. [U1] Today is ...",
-      "flagsCount": 1
+      "requiredGroups": [
+        [
+          "feedback"
+        ],
+        [
+          "canny",
+          "productboard",
+          "uservoice"
+        ]
+      ],
+      "checks": [
+        {
+          "name": "Answer produced",
+          "passed": true,
+          "detail": "341 characters"
+        },
+        {
+          "name": "Historical details recalled",
+          "passed": true,
+          "detail": "All expected terms found"
+        },
+        {
+          "name": "Memory citation present",
+          "passed": true,
+          "detail": "2 memory item(s), 2 cited"
+        },
+        {
+          "name": "Live web evidence cited",
+          "passed": false,
+          "detail": "0 web result(s), 0 cited"
+        },
+        {
+          "name": "Citations resolve to evidence",
+          "passed": true,
+          "detail": "2 citation(s)"
+        },
+        {
+          "name": "Verifier found no unsupported figures or source mismatches",
+          "passed": true,
+          "detail": "No such verifier flags"
+        }
+      ],
+      "passed": false,
+      "answer": "On 3 November 2026, you asked about customer feedback tools [M1], where we discussed Canny, Productboard, and UserVoice [M2]. \n\nTo check if that answer is still correct today, we must verify the current status of these customer feedback tools, as live evidence is missing. Would you like me to look up their current features and pricing now?",
+      "evidence": [
+        {
+          "ref": "M1",
+          "kind": "memory",
+          "title": "Customer feedback tools"
+        },
+        {
+          "ref": "M2",
+          "kind": "memory",
+          "title": "Chat \"Customer feedback tools\""
+        }
+      ],
+      "flags": [],
+      "budget": {
+        "rounds": 0,
+        "queries": 0,
+        "reads": 0,
+        "evidenceChars": 206,
+        "elapsedMs": 3450
+      }
     },
     {
       "id": 2,
-      "name": "Sample 2: Pricing comparison & structured claims (CRM tools since Monday)",
-      "category": "core_question",
-      "query": "Has any of the CRM tools we shortlisted on Monday changed pricing since?",
-      "scores": {
-        "turnRecall": 100,
-        "correctnessAndStructure": 100,
-        "supportingCitations": 100,
-        "honestyAndVerification": 100
-      },
+      "name": "Monday CRM shortlist follow-up",
+      "query": "On Monday we shortlisted 5 CRM tools for a 20-person sales team. Has any of them changed pricing or shipped something big since?",
+      "requiredGroups": [
+        [
+          "hubspot"
+        ],
+        [
+          "pipedrive"
+        ],
+        [
+          "zoho"
+        ],
+        [
+          "freshsales"
+        ],
+        [
+          "close"
+        ]
+      ],
+      "checks": [
+        {
+          "name": "Answer produced",
+          "passed": true,
+          "detail": "1420 characters"
+        },
+        {
+          "name": "Historical details recalled",
+          "passed": true,
+          "detail": "All expected terms found"
+        },
+        {
+          "name": "Memory citation present",
+          "passed": true,
+          "detail": "4 memory item(s), 2 cited"
+        },
+        {
+          "name": "Live web evidence cited",
+          "passed": true,
+          "detail": "10 web result(s), 17 cited"
+        },
+        {
+          "name": "Citations resolve to evidence",
+          "passed": true,
+          "detail": "19 citation(s)"
+        },
+        {
+          "name": "Verifier found no unsupported figures or source mismatches",
+          "passed": true,
+          "detail": "No such verifier flags"
+        }
+      ],
       "passed": true,
-      "notes": "Structured comparison verified. Maintained plan, currency, and billing period distinctions.",
-      "outputPreview": "Here is the structured comparison for the CRM tools shortlisted on Monday [M1]:\n\n| Product | Plan | Baseline (Monday 9 Nov) | Current Evidence | Statu...",
-      "flagsCount": 4
+      "answer": "On Monday, we shortlisted 5 CRM tools for a 20-person sales team [M1]: HubSpot, Pipedrive, Zoho CRM, Freshsales, and Close. \n\nOur earlier notes [M1] did not record specific baseline prices or release versions, so we cannot verify historical price changes through saved notes alone. Current search results outline the current pricing structures for these tools, though dated change announcements for each specific platform are not available in the sources:\n\n| Product & Plan | Price & Currency | Billing Period & Unit | Current Evidence |\n| --- | --- | --- | --- |\n| HubSpot - Starter Tier | $20 USD [W2] | per user / month [W2] | Matches earlier answer (no baseline recorded) [W2] |\n| Pipedrive - Lite Tier | $14 USD [W5] | per seat / month, billed annually [W5] | Matches earlier answer (no baseline recorded) [W5] |\n| Zoho CRM - Standard Tier | $14 USD [W3] | per user / month, billed annually [W3] | Matches earlier answer (no baseline recorded) [W3] |\n| Freshsales - Growth Tier | $9 USD [W4] / $11 USD [W9] | per user / month, billed annually [W4] | Matches earlier answer (no baseline recorded) [W4] |\n| Close - Solo / Essentials Tier | $9 / $35 USD [W1] | per user / month, billed annually [W1] | Matches earlier answer (no baseline recorded) [W1] |\n\nHubSpot introduced a flexible pricing model affecting new implementations [W7], but exact feature shipment details were not fully specified in the search results.",
+      "evidence": [
+        {
+          "ref": "M1",
+          "kind": "memory",
+          "title": "Chat \"CRM shortlist\""
+        },
+        {
+          "ref": "M2",
+          "kind": "memory",
+          "title": "Chat \"CRM shortlist\""
+        },
+        {
+          "ref": "M3",
+          "kind": "memory",
+          "title": "Other chat"
+        },
+        {
+          "ref": "M4",
+          "kind": "memory",
+          "title": "Other chat"
+        },
+        {
+          "ref": "W1",
+          "kind": "web",
+          "title": "Close CRM Pricing 2026: $9 to $139 per User by Plan",
+          "url": "https://www.layer3labs.io/guides/close-crm-pricing",
+          "domain": "layer3labs.io",
+          "published": null
+        },
+        {
+          "ref": "W2",
+          "kind": "web",
+          "title": "2026 HubSpot Pricing Guide | Cargas",
+          "url": "https://cargas.com/software/hubspot/pricing",
+          "domain": "cargas.com",
+          "published": null
+        },
+        {
+          "ref": "W3",
+          "kind": "web",
+          "title": "Zoho CRM Pricing 2026: Every Edition and What You Pay",
+          "url": "https://www.codestringers.com/articles/zoho-crm-pricing",
+          "domain": "codestringers.com",
+          "published": null
+        },
+        {
+          "ref": "W4",
+          "kind": "web",
+          "title": "Freshsales Pricing 2026: $9 to $59/User (Real TCO After Hidden Add-Ons) | Blog | MarketBetter",
+          "url": "https://marketbetter.ai/blog/freshsales-pricing-breakdown-2026",
+          "domain": "marketbetter.ai",
+          "published": null
+        },
+        {
+          "ref": "W5",
+          "kind": "web",
+          "title": "Pipedrive Pricing, Plans & Features (2026) | SalesHive",
+          "url": "https://saleshive.com/vendors/pipedrive",
+          "domain": "saleshive.com",
+          "published": null
+        },
+        {
+          "ref": "W6",
+          "kind": "web",
+          "title": "Close CRM Calling Cost 2026: Credits, Dialer Plans, Real Bill · DialSheet",
+          "url": "https://www.dialsheet.io/resources/close-crm-calling-cost",
+          "domain": "dialsheet.io",
+          "published": null
+        },
+        {
+          "ref": "W7",
+          "kind": "web",
+          "title": "HubSpot pricing 2026 – what does the new model mean?",
+          "url": "https://suitestack.se/en/insights/hubspot-pricing-2026-new-model",
+          "domain": "suitestack.se",
+          "published": null
+        },
+        {
+          "ref": "W8",
+          "kind": "web",
+          "title": "Zoho CRM Pricing 2026 | Capterra",
+          "url": "https://www.capterra.com/p/155928/Zoho-CRM/pricing",
+          "domain": "capterra.com",
+          "published": null
+        },
+        {
+          "ref": "W9",
+          "kind": "web",
+          "title": "Freshsales Pricing 2026 | Is it Really Worth it?",
+          "url": "https://www.emailtooltester.com/en/crm/freshsales-review/pricing",
+          "domain": "emailtooltester.com",
+          "published": null
+        },
+        {
+          "ref": "W10",
+          "kind": "web",
+          "title": "Pipedrive Pricing 2026 | Watch Out For These Extra Costs",
+          "url": "https://www.emailtooltester.com/en/crm/pipedrive-review/pricing",
+          "domain": "emailtooltester.com",
+          "published": null
+        }
+      ],
+      "flags": [],
+      "budget": {
+        "rounds": 1,
+        "queries": 5,
+        "reads": 0,
+        "evidenceChars": 3643,
+        "elapsedMs": 7650
+      }
     },
     {
       "id": 3,
-      "name": "Sample 3: Search synthesis with vendor-first hierarchy (Supabase vs Neon)",
-      "category": "core_question",
-      "query": "Compare Postgres managed database pricing between Supabase and Neon",
-      "scores": {
-        "turnRecall": 100,
-        "correctnessAndStructure": 100,
-        "supportingCitations": 100,
-        "honestyAndVerification": 100
-      },
-      "passed": true,
-      "notes": "Vendor-first search synthesis comparing official pricing pages with structured tier breakdown.",
-      "outputPreview": "Official vendor pricing comparison for managed Postgres:\n\n- **Supabase** [W1]:\n  - Free tier: 500MB storage, shared CPU [W1].\n  - Pro tier: $25/month ...",
-      "flagsCount": 1
-    },
-    {
-      "id": 4,
-      "name": "Hard case 1: Missing history (honest abstention)",
-      "category": "hard_case",
-      "query": "What did we agree on with the ACME vendor on 12 August?",
-      "scores": {
-        "turnRecall": 100,
-        "correctnessAndStructure": 100,
-        "supportingCitations": 100,
-        "honestyAndVerification": 100
-      },
-      "passed": true,
-      "notes": "Correctly abstained when historical notes do not exist. Zero hallucinations.",
-      "outputPreview": "I checked our notes for 12 August 2026, but there is no record or conversation regarding an ACME vendor. If you discussed this elsewhere, please share...",
-      "flagsCount": 0
-    },
-    {
-      "id": 5,
-      "name": "Hard case 2: Ambiguous dates (two-reading disambiguation)",
-      "category": "hard_case",
-      "query": "What did I ask on Friday?",
-      "scores": {
-        "turnRecall": 100,
-        "correctnessAndStructure": 100,
-        "supportingCitations": 100,
-        "honestyAndVerification": 100
-      },
-      "passed": true,
-      "notes": "Temporal engine detected date readings; agent presented findings with disambiguation.",
-      "outputPreview": "You asked about \"Friday\". Depending on which Friday you mean:\n- **Last Friday (13 Nov 2026)** [M1]: You asked about SQLite full-text search indexing a...",
-      "flagsCount": 1
-    },
-    {
-      "id": 6,
-      "name": "Hard case 3: Failed searches (graceful \"could not verify\" degradation)",
-      "category": "hard_case",
-      "query": "What is the current pricing of Linear as of today?",
-      "scores": {
-        "turnRecall": 100,
-        "correctnessAndStructure": 100,
-        "supportingCitations": 100,
-        "honestyAndVerification": 100
-      },
-      "passed": true,
-      "notes": "Degraded cleanly during search outage without hallucinating pricing tiers.",
-      "outputPreview": "Web search is currently unavailable [W1]. [U1] I could not verify the current pricing for Linear from live web sources. Please check linear.app/pricin...",
-      "flagsCount": 1
-    },
-    {
-      "id": 7,
-      "name": "Hard case 4: Conflicting sources (nuanced reporting)",
-      "category": "hard_case",
-      "query": "What is the Pro plan price for AcmeCloud?",
-      "scores": {
-        "turnRecall": 100,
-        "correctnessAndStructure": 100,
-        "supportingCitations": 100,
-        "honestyAndVerification": 100
-      },
-      "passed": true,
-      "notes": "Identified conflicting figures, cited both sources, and highlighted official release note recency.",
-      "outputPreview": "Retrieved sources report conflicting pricing for AcmeCloud Pro:\n- An independent review from February 2025 reports **$15/month** [W1].\n- The official ...",
-      "flagsCount": 1
-    },
-    {
-      "id": 8,
-      "name": "Hard case 5: Stale and undated pages (undated source caveat and flag)",
-      "category": "hard_case",
-      "query": "Has WidgetCorp changed pricing since last month?",
-      "scores": {
-        "turnRecall": 100,
-        "correctnessAndStructure": 100,
-        "supportingCitations": 100,
-        "honestyAndVerification": 100
-      },
-      "passed": true,
-      "notes": "Verifier flagged undated web source change assertion with claim and sourceRef tracking.",
-      "outputPreview": "WidgetCorp pricing has changed from $30/month [M1] to $35/month [W1]. [U1]...",
-      "flagsCount": 1
+      "name": "Last Tuesday Postgres pricing follow-up",
+      "query": "Last Tuesday I asked you about Postgres hosting. Has any pricing changed since then?",
+      "requiredGroups": [
+        [
+          "postgres"
+        ],
+        [
+          "supabase"
+        ],
+        [
+          "neon"
+        ]
+      ],
+      "checks": [
+        {
+          "name": "Answer produced",
+          "passed": true,
+          "detail": "1061 characters"
+        },
+        {
+          "name": "Historical details recalled",
+          "passed": true,
+          "detail": "All expected terms found"
+        },
+        {
+          "name": "Memory citation present",
+          "passed": true,
+          "detail": "5 memory item(s), 9 cited"
+        },
+        {
+          "name": "Live web evidence cited",
+          "passed": true,
+          "detail": "11 web result(s), 7 cited"
+        },
+        {
+          "name": "Citations resolve to evidence",
+          "passed": true,
+          "detail": "16 citation(s)"
+        },
+        {
+          "name": "Verifier found no unsupported figures or source mismatches",
+          "passed": false,
+          "detail": "$0.35 is not in the cited source."
+        }
+      ],
+      "passed": false,
+      "answer": "From your past notes on Postgres hosting [M3], we discussed Supabase and Neon, where our notes recorded Supabase Pro at $25/month [M3] and Neon Launch at $19/month [M3]. \n\nRegarding whether pricing has changed since last Tuesday (Tue 10 Nov 2026):\n\n| Product & Plan | Price & Currency | Baseline Evidence | Current Evidence | Outcome Label |\n| --- | --- | --- | --- | --- |\n| Supabase Pro | $25/mo [M3] | $25/month [M3] | $25/mo [W3] | Matches earlier answer |\n| Neon Launch | $19/mo [M3] | $19/month [M3] | Typical spend: $15 /mo [W4] ($0.106 per CU-hr [W4], $0.35/GB-month ) [U1] | Different value (unconfirmed change) |\n\nFor Supabase Pro, current sources show $25/mo [W3], matching our earlier $25/mo figure [M3]. \n\nFor Neon Launch, our earlier note stated $19/month [M3], whereas current sources list a typical spend of $15 /mo [W4], $0.106 per CU-hr [W4], and $0.35/GB-month [W11]. Without a dated change announcement confirming when the adjustment occurred, this could indicate pricing changed without announcement or that the earlier note was inaccurate.",
+      "evidence": [
+        {
+          "ref": "M1",
+          "kind": "memory",
+          "title": "Chat \"Customer feedback tools\""
+        },
+        {
+          "ref": "M2",
+          "kind": "memory",
+          "title": "Chat \"Customer feedback tools\""
+        },
+        {
+          "ref": "M3",
+          "kind": "memory",
+          "title": "Chat \"Postgres hosting\""
+        },
+        {
+          "ref": "M4",
+          "kind": "memory",
+          "title": "Other chat"
+        },
+        {
+          "ref": "M5",
+          "kind": "memory",
+          "title": "Other chat"
+        },
+        {
+          "ref": "W1",
+          "kind": "web",
+          "title": "Supabase Pricing: 2026 Guide to Plans, Limits, and Real-World Costs",
+          "url": "https://www.jetadmin.io/blog/supabase-pricing-2026-guide-to-plans-limits-and-real-world-costs",
+          "domain": "jetadmin.io",
+          "published": null
+        },
+        {
+          "ref": "W2",
+          "kind": "web",
+          "title": "Neon Pricing Calculator (2026) — Estimate Your Monthly Bill",
+          "url": "https://makerkit.dev/pricing-calculator/neon",
+          "domain": "makerkit.dev",
+          "published": null
+        },
+        {
+          "ref": "W3",
+          "kind": "web",
+          "title": "Supabase Pricing: Free Tier Limits, Pro Costs & Egress",
+          "url": "https://www.activepieces.com/blog/supabase-pricing-free-tier-limits-pro-costs-egress",
+          "domain": "activepieces.com",
+          "published": null
+        },
+        {
+          "ref": "W4",
+          "kind": "web",
+          "title": "Pricing — Neon",
+          "url": "https://neon.com/pricing",
+          "domain": "neon.com",
+          "published": null
+        },
+        {
+          "ref": "W5",
+          "kind": "web",
+          "title": "Pricing & Fees | Supabase",
+          "url": "https://supabase.com/pricing",
+          "domain": "supabase.com",
+          "published": null
+        },
+        {
+          "ref": "W6",
+          "kind": "web",
+          "title": "Neon Review 2026 - Features, Pricing & Alternatives | srvrlss",
+          "url": "https://www.srvrlss.io/provider/neon",
+          "domain": "srvrlss.io",
+          "published": null
+        },
+        {
+          "ref": "W7",
+          "kind": "web",
+          "title": "About billing on Supabase | Supabase Docs",
+          "url": "https://supabase.com/docs/guides/platform/billing-on-supabase",
+          "domain": "supabase.com",
+          "published": null
+        },
+        {
+          "ref": "W8",
+          "kind": "web",
+          "title": "Neon plans - Neon Docs",
+          "url": "https://neon.com/docs/introduction/plans",
+          "domain": "neon.com",
+          "published": null
+        },
+        {
+          "ref": "W9",
+          "kind": "web",
+          "title": "Love Supabase, but the $25/mo pricing tier killed my side projects. My migration path to self-hosted SQLite. : r/Supabase",
+          "url": "https://www.reddit.com/r/Supabase/comments/1qgny6k/love_supabase_but_the_25mo_pricing_tier_killed_my",
+          "domain": "reddit.com",
+          "published": null
+        },
+        {
+          "ref": "W10",
+          "kind": "web",
+          "title": "Databricks Agrees to Acquire Neon to Deliver Serverless Postgres for Developers + AI Agents",
+          "url": "https://finance.yahoo.com/news/databricks-agrees-acquire-neon-deliver-100000003.html",
+          "domain": "finance.yahoo.com",
+          "published": null
+        },
+        {
+          "ref": "W11",
+          "kind": "web",
+          "title": "Neon Pricing: The Honest Cost of Serverless Postgres",
+          "url": "https://selfhost.dev/blog/neon-pricing-cost-of-serverless-postgres",
+          "domain": "selfhost.dev",
+          "published": null
+        }
+      ],
+      "flags": [
+        "$0.35 is not in the cited source."
+      ],
+      "budget": {
+        "rounds": 2,
+        "queries": 3,
+        "reads": 0,
+        "evidenceChars": 4123,
+        "elapsedMs": 11844
+      }
     }
   ]
 }

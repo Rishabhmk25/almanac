@@ -12,47 +12,69 @@
 |---|---|---|:---:|:---:|
 | **TypeScript Compiler** | `npm run typecheck` | Strict compiler checks across codebase | 100% (0 errors) | PASS ✅ |
 | **Vitest Unit Suite** | `npm test` | Testing FTS5, date parser, verifier, search batching | 41 / 41 (100%) | PASS ✅ |
-| **Component Invariants** | `npm run eval` | 23 concrete assertion cases &times; 3 runs | 69 / 69 (100%) | PASS ✅ |
-| **End-to-End Scenarios** | `npm run eval:e2e` | Complete chat flow (3 core + 5 hard cases) | 8 / 8 (100%) | PASS ✅ |
+| **Component Invariants** | `npm run eval` | 24 concrete assertion cases &times; 3 runs | 72 / 72 (100%) | PASS ✅ |
+| **Live End-to-End Evaluation** | `npm run eval:live` | Real LLM + Live Tavily Search (no mocks) | 16 / 18 checks (88.9%) | 1 / 3 cases full pass |
 | **Adversarial Robustness** | `npm run eval:adversarial` | Prompt injection, SQL injection, citation forgery, XSS | 6 / 6 (100%) | PASS ✅ |
 | **Temporal Matrix** | `npm run eval:temporal` | Date parsing across UTC, US, UK, IST, NZST timezones | 8 / 8 (100%) | PASS ✅ |
-| **Concurrency Stress** | `npm run eval:stress` | Groq 30 RPM throttler compliance & budget caps | PASS (Serialized) | PASS ✅ |
+| **Concurrency Stress** | `npm run eval:stress` | Rate-limit compliance & budget caps | PASS (Serialized) | PASS ✅ |
 
-> [!NOTE]
-> All evaluation data, execution timestamps, and per-case outputs are persisted on disk in [`scorecard.json`](./scorecard.json) and [`scorecard-e2e.json`](./scorecard-e2e.json), and summarized in [`README.md`](./README.md) and [`DESIGN.md`](./DESIGN.md).
+> [!IMPORTANT]
+> **Zero Mock Fallbacks**: The evaluation results reported below reflect **100% live execution** via `scripts/eval-real.ts` using real LLM calls (`gemini-3.5-flash` with automatic fallback to `gemini-3.5-flash-lite` / Groq) and live Tavily web search. No pre-crafted strings or mock bypasses are permitted. When a test passes 5/6 checks, it is explicitly reported as 5/6 checks with the exact failing criterion and root cause documented.
 
 ---
 
-## 2. End-to-End Evaluation (`npm run eval:e2e`)
+## 2. Real Live End-to-End Evaluation (`npm run eval:live`)
 
-The E2E evaluation verifies the complete agentic pipeline: question ingestion, date resolution, SQLite FTS5 memory recall, vendor-first search planning, evidence gathering, structured claims drafting, and claim-level verification.
+Run against live LLM generation and live Tavily search. Results saved directly to [`scorecard-e2e.json`](./scorecard-e2e.json).
 
-### Score Breakdown by Dimension
+### Summary Statistics
+* **Evaluation Mode**: LIVE (LLM + Tavily Search)
+* **Cases Run**: 3
+* **Total Evaluated Checks**: 18
+* **Passed Checks**: **16 / 18 (88.9%)**
+* **Full Case Passes**: **1 / 3 (33.3%)**
 
-* **Turn Recall**: **100%** (accurately locates historical conversation records or cleanly detects absence)
-* **Correctness & Structure**: **100%** (preserves plan, currency, billing period distinctions; avoids monthly vs. annual confusions)
-* **Supporting Citations**: **100%** (grounded with valid `[M#]` notes and `[W#]` web citations)
-* **Honesty & Verification**: **100%** (abstains with "could not verify" on missing/failed searches; verifier flags undated evidence)
-* **Overall E2E Score**: **100%** (8 / 8 cases passed)
+### Check-by-Check Results
 
-### Per-Scenario Results Matrix
+| Case # | Scenario | Checks Passed | Failing Check | Detail / Root Cause | Status |
+|:---:|---|:---:|---|---|:---:|
+| **1** | **3 November Recall & Current Follow-up**<br>_“What did I ask on 3 Nov? Is your answer still correct today?”_ | **5 / 6 (83.3%)** | Live web evidence cited | Agent accurately recalled Canny, Productboard, and UserVoice with 2 memory citations [M1, M2], but asked if the user wanted web search instead of autonomously executing live search. | 5/6 checks passed |
+| **2** | **Monday CRM Shortlist Pricing & Releases**<br>_“On Monday we shortlisted 5 CRM tools... Has any changed pricing or shipped something big since?”_ | **6 / 6 (100%)** | None | Fully recalled 5 tools (HubSpot, Pipedrive, Zoho, Freshsales, Close), searched 5 vendor queries, retrieved 10 web sources, cited 17 web facts + 2 memory facts (19 total citations), 0 verifier flags. | PASS ✅ (6/6) |
+| **3** | **Last Tuesday Postgres Pricing Follow-up**<br>_“Last Tuesday I asked you about Postgres hosting. Has any pricing changed since then?”_ | **5 / 6 (83.3%)** | Verifier found unsupported figure | Agent recalled Supabase & Neon, retrieved 11 web sources with gap-detection re-query. However, synthesis included `"$0.35/GB-month"` which was absent from the retrieved snippet. The verifier caught this ungrounded number and flagged it. | 5/6 checks passed |
 
-| # | Test Scenario | Category | Turn Recall | Correctness | Citations | Honesty & Verif | Status |
-|---|---|---|:---:|:---:|:---:|:---:|:---:|
-| **1** | **Sample 1: Date-anchored recall (3 November)**<br>_“What did I ask on 3 Nov? Is your answer still correct today?”_ | Core Question | 100% | 100% | 100% | 100% | PASS ✅ |
-| **2** | **Sample 2: Pricing comparison & structured claims**<br>_“Has any CRM tool shortlisted Monday changed pricing since?”_ | Core Question | 100% | 100% | 100% | 100% | PASS ✅ |
-| **3** | **Sample 3: Vendor-first search synthesis**<br>_“Compare Postgres managed DB pricing between Supabase and Neon”_ | Core Question | 100% | 100% | 100% | 100% | PASS ✅ |
-| **4** | **Hard Case 1: Missing history**<br>_“What did we agree on with the ACME vendor on 12 August?”_ | Hard Case | 100% | 100% | 100% | 100% | PASS ✅ |
-| **5** | **Hard Case 2: Ambiguous dates (two readings)**<br>_“What did I ask on Friday?”_ | Hard Case | 100% | 100% | 100% | 100% | PASS ✅ |
-| **6** | **Hard Case 3: Failed searches**<br>_“What is the current pricing of Linear as of today?”_ | Hard Case | 100% | 100% | 100% | 100% | PASS ✅ |
-| **7** | **Hard Case 4: Conflicting sources**<br>_“What is the pricing for Tool X?”_ | Hard Case | 100% | 100% | 100% | 100% | PASS ✅ |
-| **8** | **Hard Case 5: Stale and undated pages**<br>_“Did Product Y change price?”_ | Hard Case | 100% | 100% | 100% | 100% | PASS ✅ |
+### Detailed Check Breakdown Across All Cases
+
+```
+Case 1: Nov 3 recall and current follow-up
+  ✓ Answer produced: 341 characters
+  ✓ Historical details recalled: All expected terms found
+  ✓ Memory citation present: 2 memory item(s), 2 cited
+  ✗ Live web evidence cited: 0 web result(s), 0 cited
+  ✓ Citations resolve to evidence: 2 citation(s)
+  ✓ Verifier found no unsupported figures or source mismatches: No such verifier flags
+
+Case 2: Monday CRM shortlist follow-up
+  ✓ Answer produced: 1420 characters
+  ✓ Historical details recalled: All expected terms found
+  ✓ Memory citation present: 4 memory item(s), 2 cited
+  ✓ Live web evidence cited: 10 web result(s), 17 cited
+  ✓ Citations resolve to evidence: 19 citation(s)
+  ✓ Verifier found no unsupported figures or source mismatches: No such verifier flags
+
+Case 3: Last Tuesday Postgres pricing follow-up
+  ✓ Answer produced: 1061 characters
+  ✓ Historical details recalled: All expected terms found
+  ✓ Memory citation present: 5 memory item(s), 9 cited
+  ✓ Live web evidence cited: 11 web result(s), 7 cited
+  ✓ Citations resolve to evidence: 16 citation(s)
+  ✗ Verifier found no unsupported figures or source mismatches: $0.35 is not in the cited source.
+```
 
 ---
 
 ## 3. Component Invariant Evaluation (`npm run eval`)
 
-Repeats 23 deterministic component assertions three times across SQLite FTS5 search, date parser, quota limits, and verifier traps: **69/69 (100%)** passed.
+Repeats 24 deterministic component assertions three times across SQLite FTS5 search, date parser, quota limits, and verifier traps: **72/72 (100%)** passed.
 
 | # | Test Invariant | Category | Runs Passed | Result |
 |---|---|---|:---:|:---:|
@@ -79,6 +101,7 @@ Repeats 23 deterministic component assertions three times across SQLite FTS5 sea
 | 21 | Paraphrase recall: "database provider" matches Postgres | Recall | 3 / 3 | 100% |
 | 22 | Paraphrase recall: "sales software shortlist" matches CRM tools | Recall | 3 / 3 | 100% |
 | 23 | Busy day (50 messages): list mode truncation message | Recall | 3 / 3 | 100% |
+| 24 | Generalization: Out-of-domain query without date or pricing structure | Generalization | 3 / 3 | 100% |
 
 ---
 

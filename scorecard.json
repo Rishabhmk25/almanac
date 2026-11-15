@@ -1,7 +1,7 @@
 {
-  "evaluatedAt": "2026-11-15T21:23:10.757Z",
+  "evaluatedAt": "2026-11-15T22:51:50.126Z",
   "evalType": "rigorous-assertions",
-  "overallScore": "69/69",
+  "overallScore": "72/72",
   "overallPercentage": "100%",
   "filters": {
     "category": null,
@@ -190,6 +190,14 @@
       "id": 23,
       "name": "Busy day (50 messages): list mode truncation message",
       "category": "recall",
+      "passes": 3,
+      "total": 3,
+      "passRate": "100%"
+    },
+    {
+      "id": 24,
+      "name": "Generalization boundary: Uncited math/code figures are strictly flagged by verifier",
+      "category": "generalization",
       "passes": 3,
       "total": 3,
       "passRate": "100%"

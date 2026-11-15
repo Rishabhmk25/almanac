@@ -165,8 +165,6 @@ export function verify(
   const lines = normalizedAnswer.split('\n');
   const processedLines: string[] = [];
 
-  let inTable = false;
-
   for (const line of lines) {
     const trimmed = line.trim();
 
@@ -175,7 +173,6 @@ export function verify(
       // Check if separator line e.g. |---|---|
       if (/^\|(?:\s*:?-+:?\s*\|)+$/.test(trimmed)) {
         processedLines.push(line);
-        inTable = true;
         continue;
       }
 
@@ -223,11 +220,8 @@ export function verify(
       });
 
       processedLines.push(`|${processedCells.join('|')}|`);
-      inTable = true;
       continue;
     }
-
-    inTable = false;
 
     // Normal paragraph line: process sentences
     const sentences = splitSentences(line);

@@ -4,12 +4,13 @@ import { getDb } from '../db/migrate.js';
 import {
   countUserMessages,
   userMessagesIn,
-  bm25,
+  hybridSearch,
   turnOf,
   ftsQuery,
   EvidenceItem,
   STOPWORDS,
 } from './store.js';
+import { embedText, generateDeterministicEmbedding } from './embeddings.js';
 import { TemporalHint } from '../agent/time.js';
 
 export const MEMORY_TOKEN_CAP = cfg.memoryTokenCap || 1500;
@@ -34,10 +35,16 @@ function extractContentTokens(text: string, datePhrases: string[] = []): string[
 }
 
 function isPleasantryOrShort(text: string): boolean {
-  const words = text.trim().toLowerCase().split(/\s+/);
+  const trimmed = text.trim().toLowerCase();
+  const words = trimmed.split(/\s+/);
   if (words.length <= 1) return true;
-  const common = ['hi', 'hello', 'hey', 'thanks', 'thank you', 'thanks, that helps', 'ok', 'okay', 'good morning', 'good afternoon'];
-  return common.includes(text.trim().toLowerCase());
+  const common = [
+    'hi', 'hello', 'hey', 'thanks', 'thank you', 'thanks, that helps', 'ok', 'okay',
+    'good morning', 'good afternoon', 'good evening',
+    'make that a table', 'make it a table', 'format as a table', 'format that as a table',
+    'put that in a table', 'summarize that', 'make it shorter', 'shorter please'
+  ];
+  return common.includes(trimmed);
 }
 
 export interface InjectedMemory {
@@ -46,12 +53,29 @@ export interface InjectedMemory {
   dateNotes?: string;
 }
 
-export function buildMemoryContext(
+export async function buildMemoryContextAsync(
   userText: string,
   hints: TemporalHint[],
   convId: string | null,
   excludeIds: string[] = [],
   tz: string = 'UTC'
+): Promise<InjectedMemory> {
+  let queryVec: Float32Array | null = null;
+  try {
+    queryVec = await embedText(userText, 'search_query');
+  } catch {
+    queryVec = generateDeterministicEmbedding(userText);
+  }
+  return buildMemoryContext(userText, hints, convId, excludeIds, tz, queryVec);
+}
+
+export function buildMemoryContext(
+  userText: string,
+  hints: TemporalHint[],
+  _convId: string | null,
+  excludeIds: string[] = [],
+  tz: string = 'UTC',
+  queryVec?: Float32Array | null
 ): InjectedMemory {
   const currentIso = nowIso();
   const currentHuman = nowHuman(tz);
@@ -106,9 +130,10 @@ export function buildMemoryContext(
     .flatMap(win => userMessagesIn(win, limit, excludeIds))
     .sort((a, b) => a.createdAt - b.createdAt)
     .slice(0, limit);
-  const hitsInWindows = (query: string, limit: number) => windows
-    .flatMap(win => bm25(query, win, limit, excludeIds))
-    .sort((a, b) => a.score - b.score)
+  const effectiveVec = queryVec ?? generateDeterministicEmbedding(userText);
+  const hitsInWindows = (query: string | null, limit: number) => windows
+    .flatMap(win => hybridSearch(query, effectiveVec, win, limit, excludeIds))
+    .sort((a, b) => b.score - a.score)
     .slice(0, limit);
 
   // Is list mode?
@@ -174,9 +199,11 @@ export function buildMemoryContext(
     tokenBudget -= usedTokens;
   }
 
-  // 2. Turns in full: rank the matching date windows (or all turns if none) by BM25, up to 3 turns
+  // 2. Turns in full: rank the matching date windows (or all turns if none) by Hybrid BM25+Vector, up to 3 turns
   if (tokenBudget > 300) {
-    let hits = fts && windows.length ? hitsInWindows(fts, 10) : fts ? bm25(fts, undefined, 10, excludeIds) : [];
+    let hits = windows.length
+      ? hitsInWindows(fts, 10)
+      : hybridSearch(fts, effectiveVec, undefined, 10, excludeIds);
     if (windows.length && hits.length === 0) {
       // If user queried a specific date without keyword matches, retrieve turns in that window to re-check
       const msgsInWin = messagesInWindows(3);
@@ -199,6 +226,16 @@ export function buildMemoryContext(
       const userMsg = turnMsgs.find(m => m.role === 'user');
       const assistantMsg = turnMsgs.find(m => m.role === 'assistant');
       if (!userMsg && !assistantMsg) continue;
+
+      // When there is no date window (open search across all history),
+      // ensure the retrieved turn has meaningful lexical relevance to the query.
+      // This prevents out-of-domain questions (e.g. biology, science, general algorithms)
+      // from falsely matching completely unrelated SaaS/CRM/Postgres notes.
+      if (!windows.length && contentTokens.length >= 1) {
+        const fullTurnText = `${userMsg?.content || ''} ${assistantMsg?.content || ''}`.toLowerCase();
+        const matchesContent = contentTokens.some(t => fullTurnText.includes(t));
+        if (!matchesContent) continue;
+      }
 
       // Skip past turns where the assistant simply abstained ("I don't have any note about ...")
       // or failed to produce an answer, to avoid contaminating memory recall with past negative abstentions.
@@ -266,8 +303,8 @@ export function buildMemoryContext(
   }
 
   // 3. Other chats: up to 3 turns outside the window, trimmed to 400 chars, only if message has at least 2 content tokens
-  if (fts && contentTokens.length >= 2 && windows.length && tokenBudget > 200) {
-    const outsideHits = bm25(fts, undefined, 5, excludeIds);
+  if (contentTokens.length >= 2 && windows.length && tokenBudget > 200) {
+    const outsideHits = hybridSearch(fts, effectiveVec, undefined, 5, excludeIds);
     let outsideCount = 0;
     for (const hit of outsideHits) {
       if (outsideCount >= 3) break;

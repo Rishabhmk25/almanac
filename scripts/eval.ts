@@ -22,13 +22,13 @@ import { addMessage, getOrCreateConversation, EvidenceItem } from '../src/memory
 interface EvalCase {
   id: number;
   name: string;
-  category: 'recall' | 'verifier' | 'budget' | 'fault' | 'security' | 'formatting';
+  category: 'recall' | 'verifier' | 'budget' | 'fault' | 'security' | 'formatting' | 'generalization';
   description: string;
   run: () => Promise<boolean> | boolean;
 }
 
 export async function runEval(): Promise<void> {
-  console.log('=== Almanac Evaluation Suite (23 Rigorous Cases x 3 Runs) ===\n');
+  console.log('=== Almanac Evaluation Suite (24 Rigorous Cases x 3 Runs) ===\n');
 
   // Seed standard demo history in memory DB
   const db = getDb(':memory:');
@@ -413,6 +413,29 @@ export async function runEval(): Promise<void> {
         return mem.contextBlock.includes('Showing') && mem.contextBlock.includes('of 50 user messages') && mem.contextBlock.includes('not shown');
       },
     },
+    {
+      id: 24,
+      name: 'Generalization boundary: Uncited math/code figures are strictly flagged by verifier',
+      category: 'generalization',
+      description: 'Verifies that when asked an out-of-domain mathematical question without sources, the verifier refuses to silently pass unevidenced figures',
+      run: () => {
+        const query = 'Calculate the compound interest on an initial investment of $10,000 at 5.5% over 4 years.';
+        const hints = resolveDateHints(query, frozenNow, tz);
+        // 1. Must have NO temporal hints
+        const noTemporalHints = hints.length === 0;
+
+        // 2. Memory retrieval against demo DB must be empty (clean abstention, no false matches)
+        const mem = buildMemoryContext(query, hints, null, [], tz);
+        const noFalseMemory = mem.memoryItems.length === 0 && !mem.contextBlock.includes('<memory_item');
+
+        // 3. Verifier test: an unevidenced mathematical calculation MUST trigger verifier flags
+        const mathDraft = 'The total accrued amount on $10,000 at 5.5% over 4 years is $12,388.25.';
+        const res = verify(mathDraft, []); // empty evidence because pure math has no web source
+        const flagsUnsupportedFigures = res.flags.length >= 1 && res.flags.some(f => f.reason.toLowerCase().includes('without a source') || f.reason.toLowerCase().includes('not in the cited source'));
+
+        return noTemporalHints && noFalseMemory && flagsUnsupportedFigures;
+      },
+    },
   ];
 
   // Parse CLI flags
@@ -425,8 +448,8 @@ Usage:
   npm run eval [-- options]
 
 Options:
-  --category=<cat>     Filter by category: recall, verifier, budget, fault, security, formatting
-  --case=<id>          Run a specific test case by ID (1-23)
+  --category=<cat>     Filter by category: recall, verifier, budget, fault, security, formatting, generalization
+  --case=<id>          Run a specific test case by ID (1-24)
   --filter=<str>       Run test cases matching substring in name or description
   --runs=<n>           Number of test runs per case (default: 3)
   --bail               Stop immediately on first failure

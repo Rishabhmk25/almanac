@@ -67,20 +67,6 @@ export interface StreamRoundResult {
   }>;
 }
 
-export async function checkModels(): Promise<void> {
-  if (!cfg.groqKey) return;
-  try {
-    const client = getGroqClient();
-    const list = await client.models.list();
-    const ids = new Set(list.data.map(m => m.id));
-    if (!ids.has(cfg.model)) {
-      console.warn(`[WARN] Configured primary model "${cfg.model}" was not found in Groq model list.`);
-    }
-  } catch {
-    // Non-fatal warning at boot
-  }
-}
-
 export async function streamRound(opts: StreamRoundOpts): Promise<StreamRoundResult> {
   if (cfg.fault === 'groq_429') {
     throw new Error('429 Rate limit exceeded (FAULT injected)');
@@ -229,4 +215,6 @@ export async function streamRound(opts: StreamRoundOpts): Promise<StreamRoundRes
 
   throw lastError || new Error('Failed to run LLM completion');
 }
+
+export const streamRoundGroq = streamRound;
 

@@ -2,6 +2,8 @@ import crypto from 'node:crypto';
 import { getDb } from '../src/db/migrate.js';
 import { now } from '../src/clock.js';
 import { startOfLocalDay, addLocalDays, dowIn } from '../src/agent/time.js';
+import { storeEmbedding } from '../src/memory/store.js';
+import { generateDeterministicEmbedding } from '../src/memory/embeddings.js';
 
 export function seedDemoData(): void {
   const db = getDb();
@@ -90,6 +92,7 @@ export function seedDemoData(): void {
         INSERT INTO messages (id, conversation_id, seq, role, content, created_at, status, meta, imported, demo)
         VALUES (?, ?, ?, ?, ?, ?, 'complete', '{}', 1, 1)
       `).run(msgId, convId, seq++, msg.role, msg.content, msg.createdAt);
+      storeEmbedding(msgId, generateDeterministicEmbedding(msg.content));
     }
   }
 

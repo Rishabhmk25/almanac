@@ -59,67 +59,6 @@ function briefZod(err: unknown): string {
 
 const classifierCache = new Map<string, boolean>();
 
-async function classifyQueryWithLLM(query: string, parentSignal?: AbortSignal): Promise<boolean> {
-  const prompt = `You are a query classifier for a chat assistant.
-Classify whether this user query needs live external web search (SEARCH) or should bypass web search (BYPASS).
-
-Rules:
-- BYPASS: Greetings, pleasantries ("hi", "thanks"), formatting commands ("make that a table", "shorter"), or inquiries about personal schedule, tasks, calendar, agenda, meetings, or private notes.
-- SEARCH: Questions about external products, companies, pricing, costs, market changes, news, documentation, or facts requiring live web data.
-
-User query: "${query}"
-
-Respond with ONLY one word: "BYPASS" or "SEARCH".`;
-
-  const timeoutCtrl = new AbortController();
-  const timer = setTimeout(() => timeoutCtrl.abort(), 2000);
-
-  const onParentAbort = () => timeoutCtrl.abort();
-  if (parentSignal) {
-    if (parentSignal.aborted) {
-      clearTimeout(timer);
-      throw new Error('Aborted');
-    }
-    parentSignal.addEventListener('abort', onParentAbort, { once: true });
-  }
-
-  try {
-    if (cfg.geminiKey) {
-      const client = getGeminiClient();
-      const res = await client.models.generateContent({
-        model: cfg.fallbackModel || 'gemini-3.5-flash-lite',
-        contents: prompt,
-        config: {
-          temperature: 0,
-          maxOutputTokens: 6,
-          abortSignal: timeoutCtrl.signal,
-        },
-      });
-      const output = (res.text || '').trim().toUpperCase();
-      return output.startsWith('BY') || output.includes('BYPASS');
-    }
-
-    if (cfg.groqKey) {
-      const groq = getGroqClient();
-      const res = await groq.chat.completions.create({
-        model: 'openai/gpt-oss-20b',
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0,
-        max_tokens: 6,
-      }, { signal: timeoutCtrl.signal });
-      const output = (res.choices[0]?.message?.content || '').trim().toUpperCase();
-      return output.startsWith('BY') || output.includes('BYPASS');
-    }
-
-    throw new Error('No LLM client configured');
-  } finally {
-    clearTimeout(timer);
-    if (parentSignal) {
-      parentSignal.removeEventListener('abort', onParentAbort);
-    }
-  }
-}
-
 function deterministicBypassRule(text: string): boolean {
   const cleaned = text
     .toLowerCase()
@@ -172,12 +111,12 @@ function deterministicBypassRule(text: string): boolean {
 }
 
 /**
- * Lightweight classifier that determines whether a user query requires external
- * web search or should bypass search (e.g. greetings, formatting requests, or personal agenda/notes).
+ * Deterministic helper for query classification (tested in unit suites).
+ * In the live turn loop, classification is folded directly into the main LLM call with tool_choice: 'auto'.
  */
 export async function shouldBypassSearch(
   text: string,
-  signal?: AbortSignal
+  _signal?: AbortSignal
 ): Promise<boolean> {
   const trimmed = text.trim();
   if (!trimmed) return true;
@@ -187,36 +126,9 @@ export async function shouldBypassSearch(
     return classifierCache.get(cacheKey)!;
   }
 
-  // 1. Instant fast-path for obvious 1-word greetings & acknowledgments (0ms)
-  const singleToken = trimmed.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
-  if (['hi', 'hello', 'hey', 'thanks', 'thx', 'ok', 'okay', 'bye', 'help'].includes(singleToken)) {
-    classifierCache.set(cacheKey, true);
-    return true;
-  }
-
-  // 2. In unit test runner environment, use deterministic rule for sub-millisecond execution
-  const isTest = process.env.NODE_ENV === 'test' || Boolean(process.env.VITEST);
-  if (isTest) {
-    const decision = deterministicBypassRule(trimmed);
-    classifierCache.set(cacheKey, decision);
-    return decision;
-  }
-
-  // 3. Lightweight LLM classifier call (online mode)
-  if (cfg.geminiKey || cfg.groqKey) {
-    try {
-      const decision = await classifyQueryWithLLM(trimmed, signal);
-      classifierCache.set(cacheKey, decision);
-      return decision;
-    } catch {
-      // Fall through to deterministic heuristic on timeout / rate-limit / offline
-    }
-  }
-
-  // 4. Fallback deterministic classification heuristic
-  const fallback = deterministicBypassRule(trimmed);
-  classifierCache.set(cacheKey, fallback);
-  return fallback;
+  const decision = deterministicBypassRule(trimmed);
+  classifierCache.set(cacheKey, decision);
+  return decision;
 }
 
 function toolMsg(callId: string, content: string): ChatMsg {
@@ -257,7 +169,10 @@ function combineSignals(...signals: (AbortSignal | undefined)[]): { signal: Abor
   };
 }
 
-export function groundCitations(text: string, evidence: EvidenceItem[], userQuery?: string): string {
+export function stripAndFlagCitations(
+  text: string,
+  evidence: EvidenceItem[]
+): { text: string; flags: Flag[] } {
   // Normalize unicode spaces (e.g. narrow no-break space \u202f) to standard spaces
   let normalized = text.replace(/[\u202f\u00a0\u2000-\u200b]/g, ' ');
 
@@ -283,122 +198,33 @@ export function groundCitations(text: string, evidence: EvidenceItem[], userQuer
   }
 
   const validRefs = new Set(evidence.map(e => e.ref.toUpperCase()));
+  const flags: Flag[] = [];
 
-  // Replace any [W#] or [M#] that does NOT exist in validRefs
-  let grounded = normalized.replace(/\[([WM]\d+)\]/gi, (_, tag) => {
-    return validRefs.has(tag.toUpperCase()) ? `[${tag.toUpperCase()}]` : '';
+  // Strip phantom citation tags that do not exist in evidence, and flag them
+  let stripped = normalized.replace(/\[([WM]\d+)\]/gi, (_, tag) => {
+    const upper = tag.toUpperCase();
+    if (validRefs.has(upper)) {
+      return `[${upper}]`;
+    }
+    flags.push({
+      id: `U${flags.length + 1}`,
+      reason: `Cites a source that does not exist: [${upper}].`,
+      sourceRef: upper,
+    });
+    return '';
   });
-
-  // If memory items exist and none are cited in the text yet, ground the memory reference
-  const memoryItems = evidence.filter(e => e.kind === 'memory');
-  const existingCites = (grounded.match(/\[([WM]\d+)\]/gi) || []).map(m => m.replace(/[[\]]/g, '').toUpperCase());
-  const hasMemoryCite = existingCites.some(c => c.startsWith('M'));
-
-  if (!hasMemoryCite && memoryItems.length > 0) {
-    const primaryMem = memoryItems[0]!;
-    const memoryTriggers = /\b(shortlist(?:ed)?|earlier|previously|recorded|past notes?|prior discussion|last (?:Monday|Tuesday|Wednesday|Thursday|Friday)|3 November|November 3)\b/i;
-    if (memoryTriggers.test(grounded)) {
-      grounded = grounded.replace(memoryTriggers, `$1 [${primaryMem.ref}]`);
-    } else {
-      const firstSentenceEnd = grounded.indexOf('.');
-      if (firstSentenceEnd !== -1) {
-        grounded = grounded.slice(0, firstSentenceEnd) + ` [${primaryMem.ref}]` + grounded.slice(firstSentenceEnd);
-      }
-    }
-  }
-
-  // If web items exist and none are cited in the text yet, ground any mentioned entities
-  const hasWebCite = (grounded.match(/\[([WM]\d+)\]/gi) || []).some(m => m.replace(/[[\]]/g, '').toUpperCase().startsWith('W'));
-  if (!hasWebCite) {
-    for (const item of evidence) {
-      if (item.kind === 'web' && item.entity) {
-        const baseEntity = item.entity.replace(/\b(pricing|plans?|tiers?|tools?|CRM|hosting|software)\b/gi, '').trim();
-        const namesToTry = [item.entity, baseEntity].filter(n => n.length >= 3);
-        for (const name of namesToTry) {
-          const entRegex = new RegExp(`\\b(${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})\\b`, 'i');
-          if (entRegex.test(grounded)) {
-            grounded = grounded.replace(entRegex, `$1 [${item.ref}]`);
-            break;
-          }
-        }
-      }
-    }
-  }
-
-  // Ensure topic keywords from the user question are present when referring to memory
-  if (userQuery && /postgres/i.test(userQuery) && !/postgres/i.test(grounded)) {
-    grounded = grounded.replace(/\[M1\]/i, '[M1] regarding Postgres hosting');
-  }
-  if (userQuery && /\bcrm\b/i.test(userQuery) && !/\bcrm\b/i.test(grounded)) {
-    grounded = grounded.replace(/\[M1\]/i, '[M1] regarding CRM tools');
-  }
-
-  // Cross-entity misattribution and unsupported figure check:
-  // If a table row is about entity A, but contains unevidenced numbers or cites another product's sources,
-  // clean up the row so that foreign numbers/citations do not cause verifier failures.
-  const evByRef = new Map(evidence.map(e => [e.ref.toUpperCase(), e]));
-  const knownEntities = Array.from(new Set(evidence.map(e => e.entity).filter((e): e is string => Boolean(e))));
-  const aliases = buildAliases(knownEntities, evidence);
-
-  const lines = grounded.split('\n');
-  const processedLines = lines.map(line => {
-    const trimmed = line.trim();
-    if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
-      const cells = trimmed.split('|').slice(1, -1);
-      const rowEntities = Array.from(new Set(cells.flatMap(c => entitiesNamedIn(c, aliases))));
-      const primaryEntity = rowEntities[0];
-      const entityEv = primaryEntity ? evidence.filter(e => e.entity?.toLowerCase() === primaryEntity.toLowerCase()) : evidence;
-
-      const fixedCells = cells.map((cell, idx) => {
-        if (idx === 0) return cell;
-        const nums = extractFigures(cell);
-        const cellCites = citesIn(cell);
-        const rowCites = citesIn(line);
-        const effectiveCites = cellCites.length > 0 ? cellCites : rowCites;
-
-        if (nums.length > 0) {
-          const citedItems = effectiveCites.map(c => evByRef.get(c)).filter(Boolean);
-          const hasUnsupportedFigure = nums.some(n => !citedItems.some(i => i && containsFigure(i.snippet, n)));
-          if (hasUnsupportedFigure) {
-            const matchingEv = entityEv.find(e => nums.some(n => containsFigure(e.snippet, n)));
-            if (matchingEv) {
-              return cell.replace(/\[([WM]\d+)\]/gi, `[${matchingEv.ref}]`);
-            } else {
-              return ' Could not verify ';
-            }
-          }
-        }
-
-        if (/could not verify/i.test(cell) && citesIn(cell).length === 0 && entityEv.length > 0) {
-          const webItem = entityEv.find(e => e.kind === 'web');
-          if (webItem) {
-            return ` Could not verify [${webItem.ref}] `;
-          }
-        }
-
-        if (primaryEntity) {
-          return cell.replace(/\[([WM]\d+)\]/gi, (m, tag) => {
-            const ce = evByRef.get(tag.toUpperCase());
-            return (ce && ce.kind === 'web' && ce.entity && ce.entity.toLowerCase() !== primaryEntity.toLowerCase()) ? '' : m;
-          });
-        }
-
-        return cell;
-      });
-
-      return `|${fixedCells.join('|')}|`;
-    }
-    return line;
-  });
-  grounded = processedLines.join('\n');
 
   // Clean up double spaces or awkward spacing caused by stripping tags
-  grounded = grounded
+  stripped = stripped
     .replace(/[ \t]{2,}/g, ' ')
     .replace(/ +([.,;:!?])/g, '$1')
     .trim();
 
-  return grounded;
+  return { text: stripped, flags };
+}
+
+export function groundCitations(text: string, evidence: EvidenceItem[]): string {
+  return stripAndFlagCitations(text, evidence).text;
 }
 
 export async function runAgent(
@@ -453,155 +279,147 @@ export async function runAgent(
   let text = '';
   const allQueriedEntities: string[] = [];
 
-  const bypassSearch = await shouldBypassSearch(ctx.userText, searchSignal);
+  const tSearchStart = Date.now();
 
-  if (bypassSearch) {
-    clearTimeout(searchDeadlineTimer);
-    cleanupSearchSignal();
-    trace.push({ stage: 'search', ms: 0, note: 'bypassed' });
-    emit('status', {
-      step: 'search',
-      state: 'skipped',
-    });
-  } else {
-    const tSearchStart = Date.now();
+  try {
+    for (;;) {
+      if (searchSignal.aborted) break;
 
-    try {
-      for (;;) {
-        if (searchSignal.aborted) break;
+      const toolsOn = cfg.features.search && !budget.exhausted && invalidStrikes < 2;
 
-        const toolsOn = cfg.features.search && !budget.exhausted && invalidStrikes < 2;
+      // If search is not allowed / exhausted and we already did a round of searches,
+      // break out of the search loop so the dedicated write phase handles final answer generation.
+      if (!toolsOn && budget.rounds > 0) {
+        break;
+      }
 
-        // If search is not allowed / exhausted and we already did a round of searches,
-        // break out of the search loop so the dedicated write phase handles final answer generation.
-        if (!toolsOn && budget.rounds > 0) {
-          break;
+      if (toolsOn && budget.rounds === 0) {
+        emit('status', { step: 'search', state: 'active', detail: 'round 1' });
+      }
+
+      const round = await streamRound({
+        messages,
+        tools: toolsOn ? [WEB_SEARCH_TOOL] : undefined,
+        tool_choice: toolsOn ? 'auto' : undefined,
+        emit,
+        signal: searchSignal,
+      });
+
+      if (round.toolCalls.length === 0) {
+        text = round.content;
+        break;
+      }
+
+      if (!toolsOn) {
+        text = round.content;
+        break;
+      }
+
+      budget.rounds++;
+      messages.push({
+        role: 'assistant',
+        content: round.content || null,
+        tool_calls: round.toolCalls,
+      });
+
+      for (const call of round.toolCalls) {
+        console.log('TOOL CALL RAW ARGS:', call.function.arguments);
+        const parsed = WebSearchArgs.safeParse(safeJson(call.function.arguments));
+        if (!parsed.success) {
+          console.log('TOOL CALL PARSE ERROR:', briefZod(parsed.error));
+          invalidStrikes++;
+          messages.push(
+            toolMsg(call.id, makeInvalidArgsPrompt(briefZod(parsed.error)))
+          );
+          continue;
         }
 
-        if (toolsOn && budget.rounds === 0) {
-          emit('status', { step: 'search', state: 'active', detail: 'round 1' });
+        for (const q of parsed.data.queries) {
+          if (q.entity && !allQueriedEntities.includes(q.entity)) {
+            allQueriedEntities.push(q.entity);
+          }
         }
 
-        const round = await streamRound({
-          messages,
-          tools: toolsOn ? [WEB_SEARCH_TOOL] : undefined,
-          tool_choice: toolsOn ? (budget.rounds === 0 ? 'required' : 'auto') : undefined,
-          emit,
-          signal: searchSignal,
+        const { run, dropped } = prioritise(parsed.data.queries, budget.room());
+        emit('status', {
+          step: 'search',
+          state: 'active',
+          detail: `round ${budget.rounds} · ${run.length} queries`,
         });
 
-        if (round.toolCalls.length === 0) {
-          text = round.content;
-          break;
-        }
+        const results = await runBatch(run, budget, searchSignal);
+        evidenceStore.add(results, budget);
+        emit('evidence', { items: evidenceStore.items });
 
-        if (!toolsOn) {
-          text = round.content;
-          break;
-        }
+        messages.push(
+          toolMsg(call.id, formatToolResult(results, dropped, budget, allQueriedEntities, evidenceStore))
+        );
+      }
 
-        budget.rounds++;
-        messages.push({
-          role: 'assistant',
-          content: round.content || null,
-          tool_calls: round.toolCalls,
-        });
+      // Gap Detection step: after round 1, check which entities lack evidence and specifically re-query
+      if (budget.rounds === 1 && !budget.exhausted && !searchSignal.aborted) {
+        const expectedEntities = Array.from(new Set([
+          ...allQueriedEntities,
+          ...ctx.memoryItems.map(m => m.entity).filter((e): e is string => Boolean(e)),
+        ]));
 
-        for (const call of round.toolCalls) {
-          console.log('TOOL CALL RAW ARGS:', call.function.arguments);
-          const parsed = WebSearchArgs.safeParse(safeJson(call.function.arguments));
-          if (!parsed.success) {
-            console.log('TOOL CALL PARSE ERROR:', briefZod(parsed.error));
-            invalidStrikes++;
-            messages.push(
-              toolMsg(call.id, makeInvalidArgsPrompt(briefZod(parsed.error)))
-            );
-            continue;
-          }
-
-          for (const q of parsed.data.queries) {
-            if (q.entity && !allQueriedEntities.includes(q.entity)) {
-              allQueriedEntities.push(q.entity);
-            }
-          }
-
-          const { run, dropped } = prioritise(parsed.data.queries, budget.room());
+        const gaps = detectEvidenceGaps(expectedEntities, evidenceStore);
+        if (gaps.length > 0 && budget.room() > 0) {
+          console.log(`[GAP DETECTION] Re-querying ${gaps.length} entities lacking evidence: ${gaps.join(', ')}`);
           emit('status', {
             step: 'search',
             state: 'active',
-            detail: `round ${budget.rounds} · ${run.length} queries`,
+            detail: `round 2 · gap re-query: ${gaps.join(', ')}`,
           });
 
-          const results = await runBatch(run, budget, searchSignal);
-          evidenceStore.add(results, budget);
-          emit('evidence', { items: evidenceStore.items });
-
-          messages.push(
-            toolMsg(call.id, formatToolResult(results, dropped, budget, allQueriedEntities, evidenceStore))
+          const gapQueries: Query[] = gaps.map(ent =>
+            WebSearchQuery.parse({
+              q: `${ent} pricing plans changelog`,
+              entity: ent,
+              kind: 'current' as const,
+              read: true,
+            })
           );
-        }
 
-        // Gap Detection step: after round 1, check which entities lack evidence and specifically re-query
-        if (budget.rounds === 1 && !budget.exhausted && !searchSignal.aborted) {
-          const expectedEntities = Array.from(new Set([
-            ...allQueriedEntities,
-            ...ctx.memoryItems.map(m => m.entity).filter((e): e is string => Boolean(e)),
-          ]));
+          const { run: gapRun, dropped: gapDropped } = prioritise(gapQueries, budget.room());
+          if (gapRun.length > 0) {
+            budget.rounds++;
+            const gapResults = await runBatch(gapRun, budget, searchSignal);
+            evidenceStore.add(gapResults, budget);
+            emit('evidence', { items: evidenceStore.items });
 
-          const gaps = detectEvidenceGaps(expectedEntities, evidenceStore);
-          if (gaps.length > 0 && budget.room() > 0) {
-            console.log(`[GAP DETECTION] Re-querying ${gaps.length} entities lacking evidence: ${gaps.join(', ')}`);
-            emit('status', {
-              step: 'search',
-              state: 'active',
-              detail: `round 2 · gap re-query: ${gaps.join(', ')}`,
+            messages.push({
+              role: 'user',
+              content: `[GAP DETECTION RE-QUERY RESULTS]: Round 2 targeted re-queries were executed for entities lacking evidence (${gaps.join(', ')}):\n${formatToolResult(gapResults, gapDropped, budget, allQueriedEntities, evidenceStore)}`,
             });
 
-            const gapQueries: Query[] = gaps.map(ent =>
-              WebSearchQuery.parse({
-                q: `${ent} pricing plans changelog`,
-                entity: ent,
-                kind: 'current' as const,
-                read: true,
-              })
-            );
-
-            const { run: gapRun, dropped: gapDropped } = prioritise(gapQueries, budget.room());
-            if (gapRun.length > 0) {
-              budget.rounds++;
-              const gapResults = await runBatch(gapRun, budget, searchSignal);
-              evidenceStore.add(gapResults, budget);
-              emit('evidence', { items: evidenceStore.items });
-
-              messages.push({
-                role: 'user',
-                content: `[GAP DETECTION RE-QUERY RESULTS]: Round 2 targeted re-queries were executed for entities lacking evidence (${gaps.join(', ')}):\n${formatToolResult(gapResults, gapDropped, budget, allQueriedEntities, evidenceStore)}`,
-              });
-
-              break;
-            }
+            break;
           }
         }
-
-        if (budget.exhausted || searchSignal.aborted) {
-          break;
-        }
       }
-    } catch (err: unknown) {
-      if (signal.aborted) throw err;
-      if (!searchSignal.aborted) console.error('[Search loop unexpected error]:', err);
-      // If search deadline abort triggered, break out of search to final answer
-    } finally {
-      clearTimeout(searchDeadlineTimer);
-      cleanupSearchSignal();
-    }
 
-    trace.push({ stage: 'search', ms: Date.now() - tSearchStart });
-    emit('status', {
-      step: 'search',
-      state: cfg.features.search ? 'done' : 'skipped',
-    });
+      if (budget.exhausted || searchSignal.aborted) {
+        break;
+      }
+    }
+  } catch (err: unknown) {
+    if (signal.aborted) throw err;
+    if (!searchSignal.aborted) console.error('[Search loop unexpected error]:', err);
+    // If search deadline abort triggered, break out of search to final answer
+  } finally {
+    clearTimeout(searchDeadlineTimer);
+    cleanupSearchSignal();
   }
+
+  trace.push({
+    stage: 'search',
+    ms: Date.now() - tSearchStart,
+    note: budget.rounds === 0 ? 'auto-bypassed' : undefined,
+  });
+  emit('status', {
+    step: 'search',
+    state: budget.rounds === 0 ? 'skipped' : (cfg.features.search ? 'done' : 'skipped'),
+  });
 
   const tWriteStart = Date.now();
   emit('status', { step: 'write', state: 'active' });
@@ -620,7 +438,7 @@ export async function runAgent(
 
   try {
     if (!text.trim()) {
-      if (!bypassSearch) {
+      if (budget.rounds > 0) {
         let reason = 'the search budget is used';
         if (budget.rounds >= budget.c.maxRounds) reason = 'the round limit is reached';
         else if (budget.elapsed > budget.c.deadlineMs - budget.c.reserveForAnswerMs) reason = 'the time limit is reached';
@@ -693,23 +511,25 @@ export async function runAgent(
   trace.push({ stage: 'write', ms: Date.now() - tWriteStart });
   emit('status', { step: 'write', state: 'done' });
 
-  // Ground citations: strip phantom refs before verification and output
-  text = groundCitations(text, evidenceStore.items);
+  // Strip phantom citation tags and flag them
+  const stripped = stripAndFlagCitations(text, evidenceStore.items);
+  text = stripped.text;
 
   // Verification pass
   const tVerifyStart = Date.now();
-  text = groundCitations(text, evidenceStore.items, ctx.userText);
   const verified = verify(text, evidenceStore.items, allQueriedEntities);
   trace.push({ stage: 'verify', ms: Date.now() - tVerifyStart });
 
-  if (verified.text !== text || verified.flags.length > 0) {
-    emit('patch', { text: verified.text, flags: verified.flags });
+  const allFlags = [...stripped.flags, ...verified.flags];
+
+  if (verified.text !== text || allFlags.length > 0) {
+    emit('patch', { text: verified.text, flags: allFlags });
   }
 
   return {
     text: verified.text,
     evidence: evidenceStore.items,
-    flags: verified.flags,
+    flags: allFlags,
     trace,
     budget: budget.snapshot(),
   };

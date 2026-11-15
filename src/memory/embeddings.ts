@@ -63,27 +63,6 @@ export function generateDeterministicEmbedding(text: string): Float32Array {
   const cleaned = text.toLowerCase().trim();
   if (!cleaned) return vec;
 
-  // Domain synonym clustering: inject semantic affinity between related concepts
-  const conceptClusters: Record<string, string[]> = {
-    database: ['postgres', 'postgresql', 'hosting', 'supabase', 'neon', 'db', 'managed database'],
-    crm: ['sales', 'hubspot', 'pipedrive', 'zoho', 'freshsales', 'close', 'leads', 'shortlist'],
-    feedback: ['canny', 'productboard', 'uservoice', 'customer feedback', 'roadmap', 'feature requests'],
-    pricing: ['cost', 'tier', 'plan', 'month', 'seat', 'usd', 'eur', 'billing', 'subscription'],
-  };
-
-  for (const [concept, synonyms] of Object.entries(conceptClusters)) {
-    if (cleaned.includes(concept) || synonyms.some(syn => cleaned.includes(syn))) {
-      // Seed deterministic cluster signature in designated embedding dimension band
-      let seed = 0;
-      for (let i = 0; i < concept.length; i++) seed = (seed * 31 + concept.charCodeAt(i)) >>> 0;
-      const bandOffset = (seed % 16) * 40;
-      for (let j = 0; j < 30; j++) {
-        const k = bandOffset + j;
-        vec[k] = (vec[k] ?? 0) + 0.85;
-      }
-    }
-  }
-
   // Token hash distribution
   const words = cleaned.split(/\s+/);
   for (const w of words) {

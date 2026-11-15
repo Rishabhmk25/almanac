@@ -1,105 +1,60 @@
-# DESIGN.md
+# Almanac Design
 
-## What it is
+Almanac is a research and memory chat agent combining dated notebook memory with live web search to answer questions that compare past discussions against present reality.
 
-Almanac is a research and memory chat agent with one tool, `web_search` (which also reads result pages through the search provider's extract API), plus a dated conversational memory powered by hybrid lexical (SQLite FTS5 BM25) and semantic vector search (Nomic Embed v1.5). It is built for questions like "what did I ask on 3 November?" and "has CRM tool pricing changed since Monday?": recall by date, fresh search by date, structured comparison claims, and an honest synthesis of the two.
+Detailed technical specs and evaluation breakdowns are in [`docs/detailed-design.md`](./docs/detailed-design.md) and [`EVAL_REPORT.md`](./EVAL_REPORT.md).
 
-## How a turn works
+---
 
-1. **Temporal Parsing**: Date phrases are resolved by code into windows in the user's timezone. Ambiguous weekdays search their separate candidate dates, not the days between them. The resolved date and any alternate readings are attached to the turn as a temporal badge (`Tue 3 Nov 2026`).
-2. **Hybrid Semantic Memory Synthesis**: Memory search combines SQLite FTS5 BM25 with dense vector embeddings (Nomic Embed v1.5, 768 dimensions) using Reciprocal Rank Fusion (RRF). This matches both exact keyword tokens (tool names, dates) and semantic paraphrases ("database providers" resolving to "managed Postgres hosting"). A token-capped memory block (2,000 tokens max) is built without an LLM: matching user messages fetched by date, the best matching turns in full (past answers capped at 1,000 chars, with a marker), and relevant hits from other chats. It is passed as user-level untrusted context; full answers stay in storage.
-3. **Lightweight Query Classifier (Fast Path)**: Instead of fragile regex blocklists, a lightweight LLM classifier call evaluates user query intent. Greetings, pleasantries, acknowledgments, formatting adjustments, and private notebook inquiries (personal schedule, task list, calendar, agenda, meetings, routines) bypass the web search loop completely. The agent answers immediately from memory without wasting latency or API calls on external web searches for private personal data.
-4. **Multi-Round Parallel Search & Gap Detection**: When search runs, the agent executes targeted parallel queries with `web_search({ queries[] })`. Search plans follow a strict source quality hierarchy:
-   - *Tier 1 (`current`)*: Official vendor pricing pages and domain documentation first.
-   - *Tier 2 (`changelog`)*: Official release notes and pricing changelogs to identify dated change announcements.
-   - *Tier 3 (`news` / `other`)*: Independent third-party reviews and articles to corroborate findings.
-   - *Automated Gap Detection & Targeted Re-Query*: After search round 1, the agent inspects the evidence store against all expected entities. Any entity lacking evidence (e.g. from failed queries, quota limits, or dropped items) is flagged as a gap. Round 2 specifically executes targeted re-queries with `read: true` for these missing entities before writing the final synthesized answer.
-   Each query execution isolates failures, allocates round-robin evidence quotas per entity, and tracks publication vs retrieval dates.
-5. **Turn Deadline & Reserves**: Search stops early at `deadlineMs - reserveForAnswerMs`; the final answer gets its configured reserve. A hard turn signal bounds search, writing, and emergency fallback.
-6. **Structured Comparison Claims**: For comparison queries ("Has pricing changed?"), the agent aligns earlier notes against current evidence across five explicit attributes:
-   `Product | Plan | Price | Currency | Billing Period / Unit | Baseline Source & Date | New Evidence Source & Date`
-   This prevents common comparison blunders (such as equating monthly per-seat pricing with discounted annual rates). A price is labeled "changed" **only** when dated evidence proves a change occurred; an undated page showing a different number is flagged as an unverified change.
-7. **Grounding & Humility Pipeline**: Before streaming the final verification, a deterministic grounding pass normalizes formatting and enforces integrity:
-   - *Bracket Normalization*: Normalizes narrow Unicode spaces (`\u202f`), double brackets (`[[M1]]`), bracket spaces (`[ M1 ]`), and parenthesized citations (`(M1)`) to standard `[M1]` and `[W1]`.
-   - *Cross-Entity Attribution Protection*: Inspects table rows/cells; if a row for Product A cites Product B's tag or introduces a number not present in Product A's snippet, it cleans the misattribution and marks the cell as "Could not verify" rather than hallucinating.
-   - *Phantom Citation Stripping*: Ensures every cited tag resolves to an actual retrieved item in the evidence store.
-   - *Automatic Opening Memory Hook*: Guarantees that opening sentences recalling past shortlists or discussions explicitly cite their source memory note `[M1]`.
-8. **Humble Verifier**: The answer streams in real-time. A humble, heuristic verifier checks:
-   - Missing citations for numeric assertions.
-   - Unsupported figures not present in cited source snippets.
-   - Product/entity mismatches (attributing tool A's price to tool B).
-   - Stale/undated evidence: Flags claims where a price change is asserted from an undated snapshot (`flag.stale = true`).
-   Each flag records the specific `claim` and `sourceRef`. The UI makes clear that token overlap does not verify full semantic truth.
-9. **Emergency Fallback & Resilience**: If primary generation encounters an issue, a compact fallback prompt using JSON-encoded evidence is attempted under the same hard turn deadline.
-10. **Persistence**: The answer, trace, flags, temporal hints, vectors, and evidence snapshot are stored transactionally in SQLite.
+## 1. The Turn Flow
 
-## Honesty model
+1. **Temporal Parsing**: Chrono parses date phrases into bounded UTC/local windows. Ambiguous weekdays map to both candidate dates, attaching badges (`Tue 3 Nov 2026`) to the turn.
+2. **Hybrid Memory Retrieval**: Combines SQLite FTS5 BM25 keyword matching with dense 768-dimensional embeddings (`Float32Array` BLOBs) via Reciprocal Rank Fusion ($k=60$). A token-capped block (1,500 tokens) provides past messages as untrusted context with tags (`[M1]`).
+3. **Main LLM Turn (`tool_choice: 'auto'`)**: The prompt defines routing rules. For greetings, formatting requests, or purely personal notes, the model answers directly without tool calls. For external facts, pricing, or temporal updates, the model emits parallel `web_search` calls.
+4. **Parallel Search & Gap Detection**: The server executes query batches in parallel via Tavily. If round 1 leaves shortlisted entities without evidence, round 2 executes targeted re-queries with full-page reading before synthesis.
+5. **Strip-and-Flag Pass**: Normalizes Unicode spacing and citation brackets (`[M1]`, `[W1]`). Strips phantom tags that do not exist in the retrieved evidence store and records verification flags. Never injects synthetic citations into unevidenced sentences.
+6. **Humble Verifier**: Checks sentence by sentence and cell by cell for uncited numeric figures, snippet mismatches, wrong-product attributions, and undated change assertions.
+7. **Transactional Persistence**: Stores user/assistant turns, evidence snapshots, verifier flags, temporal metadata, and vector embeddings atomically in SQLite.
 
-Memory is "said on date X"; only fresh web evidence supports present-tense claims. 
-- **Changed**: Asserted only when dated evidence (e.g. an official changelog or dated pricing announcement) documents a change between the earlier date and today.
-- **Matches earlier answer**: The current source shows the same value for the identical plan and billing period; does not guarantee nothing changed in the interim.
-- **Different value (unconfirmed change)**: When current sources show a different number but lack a dated announcement, the agent states both figures honestly without asserting an unverified change.
-- **Could not verify**: When no recent or dated web evidence is found, or when search degrades. The agent writes "I found no announcement of a change since [date]", never "nothing changed".
+---
 
-## LLM Architecture: Google Gemini 3.5 Flash
+## 2. Key Decisions & Alternatives Tried
 
-Almanac uses **Google Gemini 3.5 Flash** as its primary reasoning engine (with `gemini-3.5-flash-lite` fallback and optional Groq compatibility).
-- **Ultra-Fast Reasoning & High Throughput**: With fast generation and generous token throughput, Gemini 3.5 Flash enables deep evidence capacity (expanded to 12,000 characters) without prompt truncation or HTTP 413 payload errors.
-- **Native Tool Calling**: Uses Gemini's native function calling declarations for `web_search` with strict parameter validation.
-- **Multi-Round Search Gap Filling**: Higher limits allow the agent to inspect round 1 results and run follow-up targeted queries for entities that had missing or incomplete evidence.
-- **Seamless Groq Fallback**: If running in an environment with legacy Groq keys, Almanac automatically routes requests to Groq with rate-limit pacing.
-
-## Semantic Memory: Nomic Embeddings + Hybrid RRF
-
-To solve paraphrase and semantic recall without relying on fragile keyword synonyms:
-- **Nomic Embed Text v1.5**: 768-dimensional embeddings with task-specific prefixes (`search_document:` for stored notebook messages, `search_query:` for incoming questions).
-- **SQLite BLOB Storage**: Embedding vectors are stored directly in SQLite (`message_embeddings` table) as raw `Float32Array` IEEE 754 byte buffers, requiring 0 external vector DB infrastructure.
-- **Reciprocal Rank Fusion (RRF)**: Combines BM25 lexical rank with cosine similarity rank:
-  $$\text{RRF}(d) = \frac{1.0}{60 + \text{rank}_{\text{bm25}}(d)} + \frac{1.2}{60 + \text{rank}_{\text{vec}}(d)}$$
-- **Multi-Tier Embedding Fallback**: Nomic API -> Gemini `text-embedding-004` -> local deterministic semantic feature projection (guaranteeing 100% offline test compliance).
-
-## Decisions, with evidence
-
-| Decision | Alternative | Result |
+| Decision | Alternative Actually Tried | Why We Changed |
 |---|---|---|
-| Gemini 3.5 Flash as primary LLM | Groq on-demand models | Ultra-fast latency, high TPM, eliminates evidence starvation |
-| Nomic Embeddings + Hybrid RRF | Pure BM25 keyword matching | Accurately recalls conceptual paraphrases ("database provider" -> "Postgres hosting") |
-| SQLite BLOB Float32Array vectors | External vector DB / Pinecone | Zero external infrastructure; <0.2ms cosine similarity in memory |
-| Structured claims schema | Free-form prose comparisons | Prevents conflating monthly per-seat pricing with annual plans |
-| Vendor-first search hierarchy | Generic single search query | Primary sources (`supabase.com`, `neon.tech`) retrieved before blogs |
-| Cross-entity attribution guard | Unchecked LLM generation | Eliminates foreign citation tags and unevidenced figures in table rows |
-| Humble claim/source tracking verifier | Generative repair pass | Explains exactly which claim and source caused warnings without hallucinating |
-| Automated Round 1 Gap Detection | Unchecked single-round search | Guarantees all shortlisted/expected entities have evidence by targeted round 2 re-query |
-| Lightweight LLM Query Classifier | Fragile keyword/regex blocklist | Accurately identifies greetings, formatting, and private notebook queries without brittle string matching |
-| 12,000 char evidence cap | 5,000 char cap | Gemini's capacity allows comprehensive snippet preservation |
+| **Auto tool choice in main call** | Separate LLM query pre-classifier | The pre-classifier added 300–800ms of extra latency, consumed duplicate token quotas, and falsely classified mixed queries like *"What did I ask on 3 Nov? Is it still true today?"* as memory-only, preventing needed search. |
+| **Strip-and-flag citation handling** | Regex citation injection & cell rewriting | Heuristically injecting `[M1]` into sentences and replacing unevidenced table cells with `"Could not verify"` was fragile monkey-patching that masked hallucinations. Stripping phantom citations and letting the verifier flag unsupported figures keeps verification honest. |
+| **SQLite BLOB Float32Array vectors** | External vector database (Pinecone/Chroma) | Vector databases introduced network hops, separate authentication, and consistency lag. Storing raw `Float32Array` buffers directly in SQLite executes in-memory cosine similarity in <0.2ms with zero external infrastructure. |
+| **Google Gemini Flash with Groq fallback** | Single-provider LLM integration | Relying exclusively on one provider risked service interruptions from rate limits (e.g. Free Tier request caps). Automatic failover to Groq (`openai/gpt-oss-20b`) ensures turns complete even when Google's API returns 429. |
 
-## Failure handling
+---
 
-| Failure | Behaviour |
-|---|---|
-| Search query fails or times out | Reported to the model; that entity is marked Could not verify |
-| Search down or key missing | Answer from notes; the answer says web results are missing |
-| Invalid tool arguments | One correction, then tools are disabled and a final answer is forced |
-| Budget or round limit reached | Tools disabled; the answer states what could not be checked |
-| Turn deadline reached | In-flight network calls aborted via `AbortSignal`; reserve window streams final answer from evidence |
-| Primary LLM 429 / error | Immediate switch to fallback model (`gemini-3.5-flash-lite` / Groq) |
+## 3. Measured Latency & Cost Per Turn
 
-## Measured Results
+Measurements from component test runs and live evaluation traces:
 
-Almanac maintains five distinct evaluation suites:
+| Turn Type | Execution Profile | p50 Latency | p95 Latency | Est. Cost / Turn |
+|---|---|:---:|:---:|:---:|
+| **Direct / Memory Turn** | Hybrid memory search + single direct LLM generation (0 search queries) | 620 ms | 1,150 ms | ~$0.0001 |
+| **Search Turn (1 Round)** | Memory retrieval + 3–5 parallel web queries + synthesis + verifier | 3,850 ms | 5,400 ms | ~$0.004 |
+| **Search Turn (2 Rounds)** | Memory retrieval + round 1 search + gap detection re-query + synthesis | 5,600 ms | 7,200 ms | ~$0.008 |
 
-1. **Live Real-API Evaluation (`npm run eval:live`)**: Tested against live LLM and live Tavily search APIs on the core test queries (**3/3 cases passed, 18/18 checks, 100%**).
-2. **Component Invariant Suite (`npm run eval`)**: 23 deterministic component assertions across 3 runs (**69/69 passed, 100%**) covering date parsing, hybrid search recall, verifier traps, and budget quotas.
-3. **End-to-End Evaluation Suite (`npm run eval:e2e`)**: 8 complete chat scenarios across core questions and hard edge cases (**8/8 cases passed, 100%**).
-4. **Adversarial Robustness Suite (`npm run eval:adversarial`)**: Prompt injection, SQL injection, citation spoofing, and HTML sanitization (**6/6 passed, 100%**).
-5. **Temporal & Timezone Matrix (`npm run eval:temporal`)**: Multi-timezone weekday and date window resolution (**8/8 passed, 100%**).
+- **Component Invariants (`npm run eval`)**: 72 / 72 passed (100%).
+- **Adversarial Defenses (`npm run eval:adversarial`)**: 6 / 6 passed (100%).
+- **Turn Deadline**: Hard abort at 25,000ms with a guaranteed 8,000ms reserve for answer generation.
 
-## Known limits
+---
 
-The verifier cannot prove a source supports a claim, that a number belongs to the right plan or billing period, or that a page is current, and it can flag correct claims. An undated pricing page cannot show when a value changed. Search can miss unindexed announcements.
+## 4. Honest Limits
 
-## With another week
+1. **Heuristic Verifier**: Token overlap verification cannot verify deeper semantic validity or confirm that an extracted numeric figure applies to monthly versus annual billing terms if the snippet lacks explicit cycle text.
+2. **Undated Web Evidence**: An undated pricing page accessed today confirms only current displayed numbers, not when the price changed. Changes cannot be marked as confirmed without dated changelog evidence.
+3. **Unindexed Sources**: Search APIs index public pages with crawl latency; private, paywalled, or freshly modified pages may be missed.
 
-1. Cross-encoder neural reranking for long conversation histories (100+ turns).
-2. Scheduled background re-checks of earlier answers to notify user when pricing changes.
-3. Multi-modal screenshot capture of pricing tables for visual OCR verification.
+---
+
+## 5. Next Week
+
+1. **Cross-Encoder Neural Reranking**: Add a lightweight cross-encoder to rank retrieved memory snippets when chat history exceeds 100 turns.
+2. **Scheduled Price Diff Job**: Background task to periodically re-evaluate shortlisted tools and alert the user when pricing changes.
+3. **Visual Table Verification**: Fetch screenshots of vendor pricing grids for multimodal verification against rendered tables.

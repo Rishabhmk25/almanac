@@ -940,33 +940,46 @@ td {
 }
 
 /* Citations: Catalog Cutout Tags */
+a.cite,
 .cite {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
   border: 1px solid var(--ink);
-  padding: 2px 5px;
-  margin: 0 2px;
-  font: 700 10px/1 var(--mono);
-  color: #fff;
+  padding: 1px 6px;
+  margin: 0 3px;
+  font: 700 11px/1.2 var(--mono);
+  color: #fff !important;
   background: var(--cobalt);
   vertical-align: 2px;
   box-shadow: 1px 1px 0 var(--shadow-color);
-  transition: transform 60ms;
+  transition: transform 80ms ease, box-shadow 80ms ease, background-color 120ms ease;
+  text-decoration: none !important;
+  border-radius: 2px;
+  user-select: none;
 }
 
-.cite:hover {
-  transform: translate(-1px, -1px);
-  box-shadow: 2px 2px 0 var(--shadow-color);
+a.cite:hover,
+.cite:hover,
+a.cite:focus-visible,
+.cite:focus-visible {
+  transform: translate(-1px, -1.5px);
+  box-shadow: 2px 2.5px 0 var(--shadow-color);
+  text-decoration: underline !important;
+  text-underline-offset: 2px;
+  outline: 2px solid var(--cobalt);
+  outline-offset: 1px;
 }
 
 .cite-m {
   background: var(--marigold);
-  color: var(--on-accent);
+  color: var(--on-accent) !important;
 }
 
 .cite-u {
   background: transparent;
-  color: var(--vermilion);
+  color: var(--vermilion) !important;
   border-color: var(--vermilion);
   box-shadow: none;
 }
@@ -1048,6 +1061,7 @@ td {
   box-shadow: 3px 3px 0 var(--shadow-color);
   padding: 10px 14px 10px 54px;
   margin-bottom: 10px;
+  scroll-margin-top: 80px;
 }
 
 .src .badge {
@@ -1383,26 +1397,31 @@ a.src-title {
 }
 
 /* Citations: Vibrant catalog cutout badges */
+:root[data-theme="dark"] a.cite,
 :root[data-theme="dark"] .cite {
   background: var(--cobalt);
-  color: #ffffff;
+  color: #ffffff !important;
   border-color: #000;
   box-shadow: 1px 1px 0 #000;
 }
 
-:root[data-theme="dark"] .cite:hover {
+:root[data-theme="dark"] a.cite:hover,
+:root[data-theme="dark"] .cite:hover,
+:root[data-theme="dark"] a.cite:focus-visible,
+:root[data-theme="dark"] .cite:focus-visible {
   box-shadow: 2px 2px 0 #000;
+  outline-color: var(--marigold);
 }
 
 :root[data-theme="dark"] .cite-m {
   background: var(--marigold);
-  color: #12100d;
+  color: #12100d !important;
   border-color: #000;
 }
 
 :root[data-theme="dark"] .cite-u {
   background: rgba(255, 82, 56, 0.15);
-  color: var(--vermilion);
+  color: var(--vermilion) !important;
   border-color: var(--vermilion);
   box-shadow: none;
 }
@@ -1705,8 +1724,18 @@ a.src-title {
 }
 
 @keyframes flash {
-  0% { background: var(--marigold); }
-  100% { background: var(--paper); }
+  0% {
+    background: var(--marigold);
+    box-shadow: 0 0 0 3px var(--cobalt), 4px 4px 0 var(--shadow-color);
+  }
+  35% {
+    background: var(--marigold);
+    box-shadow: 0 0 0 3px var(--cobalt), 4px 4px 0 var(--shadow-color);
+  }
+  100% {
+    background: var(--paper);
+    box-shadow: 3px 3px 0 var(--shadow-color);
+  }
 }
 
 @media (max-width: 1040px) {

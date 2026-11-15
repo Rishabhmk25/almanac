@@ -27,6 +27,13 @@ describe('Memory Injection (inject.ts & store.ts)', () => {
     expect(sanitized).not.toContain('[W1]');
   });
 
+  it('sanitizeTags rewrites fullwidth brackets 【W1】, 【M1】 to (W1), (M1)', () => {
+    const original = 'Meeting scheduled for tomorrow 【M1】 based on research 【W1】';
+    const sanitized = sanitizeTags(original);
+    expect(sanitized).toBe('Meeting scheduled for tomorrow (M1) based on research (W1)');
+    expect(sanitized).not.toContain('【M1】');
+  });
+
   it('pleasantries get empty memory block without notes', () => {
     const res = buildMemoryContext('hello', [], null);
     expect(res.memoryItems).toHaveLength(0);

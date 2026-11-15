@@ -117,5 +117,14 @@ describe('Verifier (verify.ts)', () => {
     const closeAliases = aliases.get('Close') || [];
     expect(closeAliases).toContain('Close');
   });
+
+  it('recognizes fullwidth bracket citations 【W1】 and normalizes them to standard ASCII tags', () => {
+    const text = 'HubSpot Starter is $20 【W1】. Also Pipedrive is $14 【W2】.';
+    const res = verify(text, mockEvidence, ['HubSpot', 'Pipedrive']);
+    expect(res.flags).toHaveLength(0);
+    expect(res.text).toContain('[W1]');
+    expect(res.text).toContain('[W2]');
+    expect(res.text).not.toContain('【W1】');
+  });
 });
 

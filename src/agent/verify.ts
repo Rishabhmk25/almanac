@@ -42,8 +42,8 @@ export function buildAliases(entities: string[], ev: EvidenceItem[]): Map<string
 }
 
 export function citesIn(text: string): string[] {
-  const matches = text.matchAll(/\[([WM]\d+)\]/g);
-  return Array.from(matches).map(m => m[1] ?? '').filter(Boolean);
+  const matches = text.matchAll(/[\[【]([WM]\d+)[\]】]/gi);
+  return Array.from(matches).map(m => (m[1] ?? '').toUpperCase()).filter(Boolean);
 }
 
 export function extractFigures(text: string): string[] {
@@ -145,7 +145,8 @@ export function verify(
   ev: EvidenceItem[],
   entities: string[] = []
 ): { text: string; flags: Flag[] } {
-  const byRef = new Map(ev.map(e => [e.ref, e]));
+  const normalizedAnswer = answer.replace(/[【]([WMU]\d+)[】]/g, '[$1]');
+  const byRef = new Map(ev.map(e => [e.ref.toUpperCase(), e]));
   const aliases = buildAliases(entities, ev);
   const flags: Flag[] = [];
 
@@ -161,7 +162,7 @@ export function verify(
     return ` [${id}]`;
   };
 
-  const lines = answer.split('\n');
+  const lines = normalizedAnswer.split('\n');
   const processedLines: string[] = [];
 
   let inTable = false;

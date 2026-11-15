@@ -119,26 +119,45 @@
   function renderMarkdown(m, highlight = true) {
     const tpl = document.createElement('template');
     tpl.innerHTML = DOMPurify.sanitize(marked.parse(m.content || ''), { ADD_ATTR: ['target', 'rel'] });
-    const known = new Set([...(m.evidence || []).map((e) => e.ref), ...(m.flags || []).map((f) => f.id)]);
+    const evMap = new Map((m.evidence || []).map((e) => [e.ref.toUpperCase(), e]));
+    const flMap = new Map((m.flags || []).map((f) => [f.id.toUpperCase(), f]));
+    const known = new Set([...evMap.keys(), ...flMap.keys()]);
     const walker = document.createTreeWalker(tpl.content, NodeFilter.SHOW_TEXT);
     const nodes = [];
     while (walker.nextNode()) nodes.push(walker.currentNode);
     for (const n of nodes) {
       if (n.parentElement && n.parentElement.closest('code, pre, a, button')) continue;
       const txt = n.nodeValue || '';
-      if (!/\[[WMU]\d+\]/.test(txt)) continue;
+      if (!/[\[【][WMU]\d+[\]】]/i.test(txt)) continue;
       const frag = document.createDocumentFragment();
       let last = 0;
-      for (const mt of txt.matchAll(/\[([WMU]\d+)\]/g)) {
+      for (const mt of txt.matchAll(/[\[【]([WMU]\d+)[\]】]/gi)) {
         frag.append(txt.slice(last, mt.index));
         last = mt.index + mt[0].length;
-        const ref = mt[1];
+        const ref = mt[1].toUpperCase();
         if (!known.has(ref)) { frag.append(mt[0]); continue; }
-        const b = h('button', `cite cite-${ref[0].toLowerCase()}`, ref[0] === 'U' ? '?' : ref);
-        b.type = 'button';
-        b.dataset.ref = ref;
-        if (ref[0] === 'U') b.setAttribute('aria-label', `Unverified claim ${ref}`);
-        frag.append(b);
+        const isFlag = ref[0] === 'U';
+        const evItem = evMap.get(ref);
+        const flagItem = flMap.get(ref);
+
+        // Hyperlink anchor directly to reference in Sources drawer
+        const link = h('a', `cite cite-${ref[0].toLowerCase()}`, isFlag ? '?' : ref);
+        link.href = `#ref-${ref}`;
+        link.dataset.ref = ref;
+        link.setAttribute('role', 'doc-biblioref');
+
+        // Detailed hover tooltip
+        if (evItem) {
+          const title = evItem.title || evItem.domain || (evItem.kind === 'memory' ? 'Saved note' : 'Web source');
+          const snippetExcerpt = evItem.snippet ? `\n"${evItem.snippet.slice(0, 140)}${evItem.snippet.length > 140 ? '…' : ''}"` : '';
+          link.title = `Reference [${ref}]: ${title}${evItem.url ? ' (' + evItem.url + ')' : ''}${snippetExcerpt}`;
+          link.setAttribute('aria-label', `Reference ${ref}: ${title}`);
+        } else if (flagItem) {
+          link.title = `Unverified claim [${ref}]: ${flagItem.reason || 'Flagged by verifier'}`;
+          link.setAttribute('aria-label', `Unverified claim ${ref}: ${flagItem.reason || 'Flagged'}`);
+        }
+
+        frag.append(link);
       }
       frag.append(txt.slice(last));
       n.replaceWith(frag);
@@ -173,7 +192,9 @@
   function renderEvidenceItem(item) {
     const isMemory = item.kind === 'memory';
     const row = h('div', `src ${isMemory ? 'src-memory' : 'src-web'}`);
-    row.dataset.ref = item.ref;
+    const refUpper = (item.ref || '').toUpperCase();
+    row.dataset.ref = refUpper;
+    row.id = `ref-${refUpper}`;
     const badge = h('span', 'badge', item.ref);
     const body = h('div', 'src-body');
     const u = safeUrl(item.url);
@@ -197,7 +218,9 @@
 
   function renderFlagItem(flag) {
     const row = h('div', 'src src-flag');
-    row.dataset.ref = flag.id;
+    const flagUpper = (flag.id || '').toUpperCase();
+    row.dataset.ref = flagUpper;
+    row.id = `ref-${flagUpper}`;
     const badge = h('span', 'badge', '?');
     const body = h('div', 'src-body');
     const claimTitle = flag.claim ? `Flagged claim ${flag.id}: “${flag.claim}”` : `Flagged claim ${flag.id}`;
@@ -214,7 +237,9 @@
   function updateSources(msgEl, m) {
     let wrap = msgEl.querySelector('.sources');
     const citedRefs = new Set();
-    msgEl.querySelectorAll('.cite').forEach((b) => { if (b.dataset.ref) citedRefs.add(b.dataset.ref); });
+    msgEl.querySelectorAll('.cite').forEach((b) => {
+      if (b.dataset.ref) citedRefs.add(b.dataset.ref.toUpperCase());
+    });
     const ev = m.evidence || [];
     const fl = m.flags || [];
     if (!ev.length && !fl.length && (!m.meta || !m.meta.trace)) {
@@ -227,8 +252,8 @@
     }
     wrap.replaceChildren();
     const sum = h('summary');
-    const citedEv = ev.filter((e) => citedRefs.has(e.ref));
-    const unreadEv = ev.filter((e) => !citedRefs.has(e.ref));
+    const citedEv = ev.filter((e) => citedRefs.has((e.ref || '').toUpperCase()));
+    const unreadEv = ev.filter((e) => !citedRefs.has((e.ref || '').toUpperCase()));
     const webCount = ev.filter((e) => e.kind !== 'memory').length;
     const memCount = ev.filter((e) => e.kind === 'memory').length;
     const citedCount = citedEv.length;
@@ -300,19 +325,25 @@
     if (m.role === 'assistant') {
       updateSources(node, m);
       node.addEventListener('click', (e) => {
-        const btn = e.target.closest('.cite');
-        if (!btn || !btn.dataset.ref) return;
-        const ref = btn.dataset.ref;
+        const link = e.target.closest('.cite');
+        if (!link || !link.dataset.ref) return;
+        const ref = link.dataset.ref.toUpperCase();
         const src = node.querySelector(`.src[data-ref="${ref}"]`);
         if (!src) return;
+        
+        // Prevent default jump to handle smooth navigation, open drawers, and flash
+        e.preventDefault();
         const wrap = node.querySelector('.sources');
         if (wrap && !wrap.open) wrap.open = true;
         const more = src.closest('.more');
         if (more && !more.open) more.open = true;
+        
         src.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         src.classList.remove('hl');
         void src.offsetWidth;
         src.classList.add('hl');
+        src.setAttribute('tabindex', '-1');
+        src.focus({ preventScroll: true });
       });
     }
     return node;

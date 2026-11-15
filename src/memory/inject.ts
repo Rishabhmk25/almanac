@@ -20,7 +20,7 @@ export function estTokens(s: string): number {
 }
 
 export function sanitizeTags(text: string): string {
-  return text.replace(/\[([WMU]\d+)\]/g, '($1)');
+  return text.replace(/[\[【]([WMU]\d+)[\]】]/gi, '($1)');
 }
 
 function extractContentTokens(text: string, datePhrases: string[] = []): string[] {

@@ -466,7 +466,7 @@ export async function runAgent(
   const verified = verify(text, evidenceStore.items, allQueriedEntities);
   trace.push({ stage: 'verify', ms: Date.now() - tVerifyStart });
 
-  if (verified.flags.length > 0) {
+  if (verified.text !== text || verified.flags.length > 0) {
     emit('patch', { text: verified.text, flags: verified.flags });
   }
 

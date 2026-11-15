@@ -813,64 +813,12 @@ button, textarea {
   box-shadow: 0 1px 2px rgba(0,0,0,0.06);
 }
 
-/* Assistant Messages: Physical Editorial Dispatch Sheet / Dossier Card */
-.msg.assistant {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  width: 100%;
-}
-
+/* Assistant Messages: Editorial dispatch */
 .msg.assistant .msg-body {
   position: relative;
-  background: var(--card);
-  color: var(--ink);
-  border: 2px solid var(--ink);
-  border-left: 5px solid var(--vermilion);
-  box-shadow: 4px 4px 0 var(--shadow-color);
-  padding: 18px 22px;
-  width: 100%;
-  box-sizing: border-box;
-  transform: rotate(-0.25deg);
   overflow-wrap: anywhere;
-  font-size: 15.5px;
-  line-height: 1.72;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
-}
-
-/* Washi Tape strip pinned on assistant message card */
-.msg.assistant .msg-body::before {
-  content: "";
-  position: absolute;
-  top: -10px;
-  left: 24px;
-  width: 58px;
-  height: 18px;
-  background: var(--tape);
-  border-left: 1px dashed var(--tape-border);
-  border-right: 1px dashed var(--tape-border);
-  transform: rotate(-1deg);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
-  pointer-events: none;
-  z-index: 2;
-}
-
-/* Active writing / streaming highlight for the agent's write space */
-.msg.assistant.streaming .msg-body {
-  border-color: var(--vermilion);
-  box-shadow: 5px 5px 0 var(--vermilion);
-  animation: agentDrafting 1.8s ease-in-out infinite;
-}
-
-@keyframes agentDrafting {
-  0%, 100% {
-    box-shadow: 4px 4px 0 var(--shadow-color);
-    border-color: var(--ink);
-  }
-  50% {
-    box-shadow: 6px 6px 0 var(--vermilion);
-    border-color: var(--vermilion);
-  }
+  font-size: 16px;
+  line-height: 1.7;
 }
 
 .msg-body p {
@@ -1693,19 +1641,7 @@ a.src-title {
   box-shadow: 0 0 0 3px rgba(229, 169, 50, 0.3) !important;
 }
 
-/* Dark Theme Navigation & Dispatch Card Overrides */
-:root[data-theme="dark"] .msg.assistant .msg-body {
-  background: var(--card);
-  border-color: var(--border-strong);
-  box-shadow: 4px 4px 0 #000;
-  border-left-color: var(--vermilion);
-  color: var(--ink);
-}
-
-:root[data-theme="dark"] .msg.assistant.streaming .msg-body {
-  border-color: var(--vermilion);
-  box-shadow: 5px 5px 0 var(--vermilion);
-}
+/* Dark Theme Navigation Overrides */
 
 :root[data-theme="dark"] .left-tab {
   background: var(--card);
@@ -1833,10 +1769,6 @@ a.src-title {
   }
   .msg.user .msg-body {
     max-width: 92%;
-  }
-  .msg.assistant .msg-body {
-    padding: 14px 16px;
-    font-size: 14.5px;
   }
   .chips .btn {
     font-size: 14px;

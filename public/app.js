@@ -627,6 +627,23 @@
   if (thread) {
     thread.addEventListener('scroll', updateNav, { passive: true });
   }
+
+  // Universal viewport wheel forwarding: scrolling on sides or fixed controls scrolls #thread
+  window.addEventListener('wheel', (e) => {
+    const localScroll = e.target.closest('.sidebar-scroll, pre, textarea, .table-wrap');
+    if (localScroll) return;
+
+    if (!e.target.closest('#thread') && thread) {
+      thread.scrollBy({ top: e.deltaY, behavior: 'auto' });
+    }
+  }, { passive: true });
+
+  // Clicking anywhere on sides or background focuses #thread for instant keyboard navigation
+  window.addEventListener('click', (e) => {
+    if (!e.target.closest('button, a, textarea, input, .msg-body, .sidebar')) {
+      if (thread) thread.focus({ preventScroll: true });
+    }
+  });
   
   if (sidebar) {
     sidebar.addEventListener('keydown', (e) => {
@@ -652,6 +669,24 @@
       e.preventDefault();
       input.focus();
       input.select();
+    }
+
+    // Scroll navigation keys when not typing
+    const activeTag = document.activeElement ? document.activeElement.tagName : '';
+    if (activeTag !== 'TEXTAREA' && activeTag !== 'INPUT' && thread) {
+      if (e.key === 'PageDown' || (e.key === ' ' && !e.shiftKey)) {
+        e.preventDefault();
+        thread.scrollBy({ top: window.innerHeight * 0.75, behavior: 'smooth' });
+      } else if (e.key === 'PageUp' || (e.key === ' ' && e.shiftKey)) {
+        e.preventDefault();
+        thread.scrollBy({ top: -window.innerHeight * 0.75, behavior: 'smooth' });
+      } else if (e.key === 'Home') {
+        e.preventDefault();
+        thread.scrollTo({ top: 0, behavior: 'smooth' });
+      } else if (e.key === 'End') {
+        e.preventDefault();
+        thread.scrollTo({ top: thread.scrollHeight, behavior: 'smooth' });
+      }
     }
   });
 

@@ -81,14 +81,43 @@
       <span class="nav-arrow" aria-hidden="true">&#9650;</span>
       <span class="nav-label">TOP</span>
     </button>
-    <div id="navTurnBadge" class="chat-nav-badge" title="Messages in this conversation" aria-live="polite">
-      0 MSGS
-    </div>
+    <button id="navPrevQ" class="cutout-btn chat-nav-btn nav-step-btn" type="button" aria-label="Jump to previous question" title="Previous question">
+      <span class="nav-arrow" aria-hidden="true">&#9651;</span>
+      <span class="nav-label">PREV</span>
+    </button>
+    <button id="navTurnBadge" class="chat-nav-badge" type="button" title="View questions index" aria-expanded="false" aria-controls="questionsPopover">
+      0 MSGS &#9662;
+    </button>
+    <button id="navNextQ" class="cutout-btn chat-nav-btn nav-step-btn" type="button" aria-label="Jump to next question" title="Next question">
+      <span class="nav-arrow" aria-hidden="true">&#9661;</span>
+      <span class="nav-label">NEXT</span>
+    </button>
     <button id="navJumpBottom" class="cutout-btn chat-nav-btn" type="button" aria-label="Jump to latest message" title="Jump to latest">
       <span class="nav-arrow" aria-hidden="true">&#9660;</span>
       <span class="nav-label">END</span>
     </button>
+
+    <!-- Flyout Popover for Questions Index -->
+    <div id="questionsPopover" class="questions-popover" hidden>
+      <div class="questions-popover-tape" aria-hidden="true"></div>
+      <div class="questions-popover-header">
+        <span class="questions-popover-title">JUMP TO QUESTION</span>
+        <button id="closeQuestionsPopover" class="cutout-btn close-questions-btn" type="button" aria-label="Close questions index">&times;</button>
+      </div>
+      <div class="questions-popover-scroll">
+        <ul id="questionsList" class="questions-list"></ul>
+      </div>
+    </div>
   </nav>
+
+  <!-- Floating Text Selection Reference Action Tooltip -->
+  <div id="selectionRefTooltip" class="selection-ref-tooltip" hidden>
+    <div class="sel-tooltip-tape" aria-hidden="true"></div>
+    <button id="askRefBtn" class="cutout-btn sel-ref-btn" type="button" title="Ask Almanac to verify and provide reference for selected text">
+      <span class="sel-icon" aria-hidden="true">&#128204;</span>
+      <span class="sel-text">ASK REFERENCE</span>
+    </button>
+  </div>
 
   <!-- Main Workspace Shell -->
   <div class="shell">

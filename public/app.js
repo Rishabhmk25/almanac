@@ -23,6 +23,10 @@
   const themeToggleBtn = $('#toggleTheme');
   const chatNav = $('#chatNav'), navJumpTop = $('#navJumpTop');
   const navJumpBottom = $('#navJumpBottom'), navTurnBadge = $('#navTurnBadge');
+  const navPrevQ = $('#navPrevQ'), navNextQ = $('#navNextQ');
+  const questionsPopover = $('#questionsPopover'), closeQuestionsPopover = $('#closeQuestionsPopover');
+  const questionsList = $('#questionsList');
+  const selectionRefTooltip = $('#selectionRefTooltip'), askRefBtn = $('#askRefBtn');
   const state = { convs: [], activeId: null, current: null, busy: false };
 
   function setTheme(theme, save = false) {
@@ -428,16 +432,38 @@
   const toBottom = () => { thread.scrollTop = thread.scrollHeight; };
   function updateNav() {
     if (!chatNav) return;
-    const msgs = thread ? thread.querySelectorAll('.msg') : [];
-    const count = msgs.length;
+    const userMsgs = thread ? Array.from(thread.querySelectorAll('.msg.user')) : [];
+    const allMsgs = thread ? Array.from(thread.querySelectorAll('.msg')) : [];
+    const count = allMsgs.length;
     if (count === 0) {
       chatNav.hidden = true;
+      if (questionsPopover) questionsPopover.hidden = true;
       return;
     }
     chatNav.hidden = false;
-    if (navTurnBadge) {
-      navTurnBadge.textContent = `${count} ${count === 1 ? 'MSG' : 'MSGS'}`;
+
+    // Determine currently visible question relative to top viewport
+    let activeQIdx = 0;
+    if (thread && userMsgs.length > 0) {
+      const threadTop = thread.getBoundingClientRect().top;
+      const foundIdx = userMsgs.findLastIndex((el) => {
+        return el.getBoundingClientRect().top <= threadTop + 240;
+      });
+      activeQIdx = Math.max(0, foundIdx);
     }
+
+    if (navTurnBadge) {
+      if (userMsgs.length > 0) {
+        navTurnBadge.textContent = `Q ${activeQIdx + 1}/${userMsgs.length} \u25be`;
+        navTurnBadge.title = `Question ${activeQIdx + 1} of ${userMsgs.length} \u00b7 Click to jump to any question`;
+      } else {
+        navTurnBadge.textContent = `${count} ${count === 1 ? 'MSG' : 'MSGS'} \u25be`;
+      }
+    }
+
+    if (navPrevQ) navPrevQ.disabled = activeQIdx <= 0 || userMsgs.length <= 1;
+    if (navNextQ) navNextQ.disabled = activeQIdx >= userMsgs.length - 1 || userMsgs.length <= 1;
+
     if (thread) {
       const isAtTop = thread.scrollTop <= 20;
       const isAtBottom = nearBottom();
@@ -449,6 +475,39 @@
         chatNav.classList.remove('dimmed');
       }
     }
+
+    renderQuestionsIndex(userMsgs, activeQIdx);
+  }
+
+  function renderQuestionsIndex(userMsgs, activeQIdx) {
+    if (!questionsList) return;
+    questionsList.replaceChildren();
+    if (!userMsgs.length) {
+      const emptyLi = h('li', 'question-item', 'No questions yet in this page');
+      questionsList.append(emptyLi);
+      return;
+    }
+
+    userMsgs.forEach((msg, idx) => {
+      const li = h('li', `question-item ${idx === activeQIdx ? 'active' : ''}`);
+      const num = h('span', 'q-num', `Q${idx + 1}`);
+      const rawText = (msg.querySelector('.msg-body')?.textContent || '').trim();
+      const text = h('span', 'q-text', rawText.slice(0, 60) + (rawText.length > 60 ? '\u2026' : ''));
+      const timeStr = msg.querySelector('time')?.textContent || '';
+      const time = h('time', 'q-time', timeStr);
+      li.append(num, text, time);
+
+      li.addEventListener('click', (e) => {
+        e.stopPropagation();
+        msg.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        msg.classList.remove('hl-pulse');
+        void msg.offsetWidth;
+        msg.classList.add('hl-pulse');
+        if (questionsPopover) questionsPopover.hidden = true;
+        if (navTurnBadge) navTurnBadge.setAttribute('aria-expanded', 'false');
+      });
+      questionsList.append(li);
+    });
   }
   const setTitle = (t) => {
     titleEl.textContent = 'ALMANAC';
@@ -624,8 +683,183 @@
       if (thread) thread.scrollTo({ top: thread.scrollHeight, behavior: 'smooth' });
     });
   }
+  if (navPrevQ) {
+    navPrevQ.addEventListener('click', () => {
+      const userMsgs = thread ? Array.from(thread.querySelectorAll('.msg.user')) : [];
+      if (!userMsgs.length) return;
+      const threadTop = thread.getBoundingClientRect().top;
+      const currentIdx = userMsgs.findLastIndex(el => el.getBoundingClientRect().top < threadTop + 100);
+      const targetIdx = Math.max(0, currentIdx - 1);
+      const target = userMsgs[targetIdx];
+      if (target) {
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        target.classList.remove('hl-pulse');
+        void target.offsetWidth;
+        target.classList.add('hl-pulse');
+      }
+    });
+  }
+  if (navNextQ) {
+    navNextQ.addEventListener('click', () => {
+      const userMsgs = thread ? Array.from(thread.querySelectorAll('.msg.user')) : [];
+      if (!userMsgs.length) return;
+      const threadTop = thread.getBoundingClientRect().top;
+      const currentIdx = userMsgs.findIndex(el => el.getBoundingClientRect().top > threadTop + 120);
+      const targetIdx = currentIdx === -1 ? userMsgs.length - 1 : currentIdx;
+      const target = userMsgs[targetIdx];
+      if (target) {
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        target.classList.remove('hl-pulse');
+        void target.offsetWidth;
+        target.classList.add('hl-pulse');
+      }
+    });
+  }
+  if (navTurnBadge) {
+    navTurnBadge.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (!questionsPopover) return;
+      const isOpen = !questionsPopover.hidden;
+      questionsPopover.hidden = isOpen;
+      navTurnBadge.setAttribute('aria-expanded', String(!isOpen));
+    });
+  }
+  if (closeQuestionsPopover) {
+    closeQuestionsPopover.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (questionsPopover) questionsPopover.hidden = true;
+      if (navTurnBadge) navTurnBadge.setAttribute('aria-expanded', 'false');
+    });
+  }
+
+  // Click outside closes questions popover
+  document.addEventListener('click', (e) => {
+    if (questionsPopover && !questionsPopover.hidden && !e.target.closest('#questionsPopover') && !e.target.closest('#navTurnBadge')) {
+      questionsPopover.hidden = true;
+      if (navTurnBadge) navTurnBadge.setAttribute('aria-expanded', 'false');
+    }
+  });
+
+  /* ---------- contextual text selection reference tooltip ---------- */
+  let currentSelectionText = '';
+  let currentSelectionMsg = null;
+
+  function hideSelectionTooltip() {
+    if (selectionRefTooltip && !selectionRefTooltip.hidden) {
+      selectionRefTooltip.hidden = true;
+    }
+  }
+
+  function handleSelection() {
+    if (!selectionRefTooltip) return;
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed) {
+      hideSelectionTooltip();
+      return;
+    }
+
+    const text = sel.toString().trim();
+    if (text.length < 3) {
+      hideSelectionTooltip();
+      return;
+    }
+
+    try {
+      const range = sel.getRangeAt(0);
+      const container = range.commonAncestorContainer;
+      const targetMsg = container.nodeType === Node.ELEMENT_NODE
+        ? container.closest('.msg')
+        : container.parentElement?.closest('.msg');
+
+      if (!targetMsg || !thread || !thread.contains(targetMsg)) {
+        hideSelectionTooltip();
+        return;
+      }
+
+      const rect = range.getBoundingClientRect();
+      if (!rect.width && !rect.height) {
+        hideSelectionTooltip();
+        return;
+      }
+
+      const tooltipWidth = 160;
+      const tooltipHeight = 36;
+      let top = rect.top - tooltipHeight - 10;
+      let left = rect.left + rect.width / 2 - tooltipWidth / 2;
+
+      if (top < 10) top = rect.bottom + 8;
+      left = Math.max(12, Math.min(window.innerWidth - tooltipWidth - 12, left));
+
+      selectionRefTooltip.style.top = `${top}px`;
+      selectionRefTooltip.style.left = `${left}px`;
+      selectionRefTooltip.hidden = false;
+      currentSelectionText = text;
+      currentSelectionMsg = targetMsg;
+    } catch {
+      hideSelectionTooltip();
+    }
+  }
+
+  if (askRefBtn) {
+    askRefBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!currentSelectionText) return;
+
+      const cleanText = currentSelectionText.replace(/\s+/g, ' ');
+      const query = `Can you provide the reference and source for: "${cleanText}"?`;
+
+      if (input) {
+        input.value = query;
+        input.style.height = 'auto';
+        input.style.height = `${Math.min(input.scrollHeight, 180)}px`;
+        if (sendBtn) sendBtn.disabled = false;
+      }
+
+      // Check if selected message has sources in .sources; reveal them
+      if (currentSelectionMsg) {
+        const sources = currentSelectionMsg.querySelector('.sources');
+        if (sources) {
+          sources.open = true;
+          const matchedSrc = Array.from(sources.querySelectorAll('.src')).find((srcEl) => {
+            const snip = srcEl.querySelector('.src-snippet')?.textContent || '';
+            const title = srcEl.querySelector('.src-title')?.textContent || '';
+            return snip.toLowerCase().includes(cleanText.slice(0, 20).toLowerCase()) ||
+                   title.toLowerCase().includes(cleanText.slice(0, 20).toLowerCase());
+          });
+          if (matchedSrc) {
+            matchedSrc.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            matchedSrc.classList.remove('hl');
+            void matchedSrc.offsetWidth;
+            matchedSrc.classList.add('hl');
+          }
+        }
+      }
+
+      hideSelectionTooltip();
+      window.getSelection()?.removeAllRanges();
+
+      if (input) {
+        input.scrollIntoView({ behavior: 'smooth', block: 'end' });
+        input.focus();
+        input.setSelectionRange(input.value.length, input.value.length);
+      }
+    });
+  }
+
+  document.addEventListener('mouseup', handleSelection);
+  document.addEventListener('keyup', handleSelection);
+  document.addEventListener('selectionchange', () => {
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed) hideSelectionTooltip();
+  });
+  window.addEventListener('resize', hideSelectionTooltip);
+
   if (thread) {
-    thread.addEventListener('scroll', updateNav, { passive: true });
+    thread.addEventListener('scroll', () => {
+      updateNav();
+      hideSelectionTooltip();
+    }, { passive: true });
   }
 
   // Universal viewport wheel forwarding: scrolling on sides or fixed controls scrolls #thread

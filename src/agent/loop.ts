@@ -1,5 +1,5 @@
 import { cfg } from '../config.js';
-import { EvidenceItem, Flag, TraceStep } from '../memory/store.js';
+import { EvidenceItem, Flag, TraceStep, STOPWORDS } from '../memory/store.js';
 import {
   SYSTEM_PROMPT,
   WEB_SEARCH_TOOL,
@@ -55,80 +55,6 @@ function briefZod(err: unknown): string {
     return issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ');
   }
   return 'Schema validation error';
-}
-
-const classifierCache = new Map<string, boolean>();
-
-function deterministicBypassRule(text: string): boolean {
-  const cleaned = text
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  if (!cleaned) return true;
-
-  const isGreetingOrCourtesy =
-    /^(?:hi|hello|hey|heya|hiya|howdy|good\s+(?:morning|afternoon|evening)|greetings)(?:\s+(?:there|almanac|bot|friend|everyone))?(?:\s+(?:how\s+are\s+you(?:[\s\w]*)|what(?:'?s|\s+is)\s+up|who\s+are\s+you|what\s+can\s+you\s+do|how\s+(?:are\s+things|is\s+it\s+going)))?$/i.test(cleaned) ||
-    /^(?:thanks?|thank\s+you)(?:\s+(?:a\s+lot|very\s+much|so\s+much|that\s+helps))?(?:\s+(?:almanac|bot|again))?$/i.test(cleaned) ||
-    /^(?:bye|goodbye)(?:[\s,]+(?:see\s+(?:you|ya)(?:\s+later)?|take\s+care|have\s+a\s+(?:good|nice|great)\s+day|later|for\s+now|almanac))?$|^(?:see\s+(?:you|ya)(?:\s+later)?|cya)(?:\s+(?:later|for\s+now|almanac))?$/i.test(cleaned);
-  if (isGreetingOrCourtesy) return true;
-
-  const quickBypass = new Set([
-    'ok', 'okay', 'got it', 'understood', 'cool', 'sounds good', 'sure', 'alright',
-    'who are you', 'what can you do', 'help', 'make that a table', 'format as a table',
-    'summarize that', 'make it shorter', 'shorter please'
-  ]);
-  if (quickBypass.has(cleaned)) return true;
-
-  const isPersonalAgenda =
-    /\b(?:my\s+)?(?:schedule|agenda|calendar|itinerary|timetable|daily\s+plan)\b/i.test(cleaned) ||
-    /\b(?:my\s+)?(?:task\s*list|tasks?|to[\s-]?dos?|to[\s-]?do\s*list|action\s*items?|checklists?|priorit(?:y|ies))\b/i.test(cleaned) ||
-    /\b(?:my\s+)?(?:meetings?|appointments?|syncs?|standups?|calls?)\b/i.test(cleaned) ||
-    /\b(?:what(?:'s|\s+is)\s+on\s+my\s+(?:schedule|plate|calendar|agenda|task\s*list|to[\s-]?do\s*list))\b/i.test(cleaned) ||
-    /\b(?:what\s+(?:do\s+i\s+have|are\s+my\s+tasks|is\s+my\s+schedule|are\s+my\s+meetings|is\s+my\s+agenda))\b/i.test(cleaned) ||
-    /\b(?:what\s+notes\s+do\s+i\s+have)\b/i.test(cleaned);
-
-  const isPersonalMemory =
-    /\b(?:what\s+did\s+i\s+(?:ask|say|mention|tell|write|note|work\s+on|search))\b/i.test(cleaned) ||
-    /\b(?:did\s+i\s+(?:ask|say|mention|talk\s+about|note|write))\b/i.test(cleaned) ||
-    /\b(?:what\s+were\s+we\s+talking\s+about|what\s+did\s+we\s+discuss)\b/i.test(cleaned) ||
-    /\b(?:show\s+me|find|search|check)\s+(?:my\s+)?(?:notes|conversations|chats|history)\b/i.test(cleaned) ||
-    /^(?:try\s+again|retry|redo|re-run|again|once\s+more|please\s+try\s+again)$/i.test(cleaned);
-
-  if (isPersonalAgenda || isPersonalMemory) {
-    const hasExternalWebSignal =
-      /\b(?:pric(?:ing|es?|ed)|costs?|costing|rates?|fees?|subscription)\b/i.test(cleaned) ||
-      /\b(?:shipp(?:ed|ing)|releases?|releasing|released|new\s+features?|changelogs?)\b/i.test(cleaned) ||
-      /\b(?:still\s+(?:correct|true|valid|accurate|up\s+to\s+date))\b/i.test(cleaned) ||
-      /\b(?:search(?:\s+the\s+web|\s+online|\s+for)?|look\s*up|google|check\s+online|find\s+online)\b/i.test(cleaned) ||
-      /\b(?:vs\.?|versus|compar(?:e|ing|ison|ed)|competitors?)\b/i.test(cleaned);
-
-    return !hasExternalWebSignal;
-  }
-
-  return false;
-}
-
-/**
- * Deterministic helper for query classification (tested in unit suites).
- * In the live turn loop, classification is folded directly into the main LLM call with tool_choice: 'auto'.
- */
-export async function shouldBypassSearch(
-  text: string,
-  _signal?: AbortSignal
-): Promise<boolean> {
-  const trimmed = text.trim();
-  if (!trimmed) return true;
-
-  const cacheKey = trimmed.toLowerCase();
-  if (classifierCache.has(cacheKey)) {
-    return classifierCache.get(cacheKey)!;
-  }
-
-  const decision = deterministicBypassRule(trimmed);
-  classifierCache.set(cacheKey, decision);
-  return decision;
 }
 
 function toolMsg(callId: string, content: string): ChatMsg {
@@ -323,10 +249,8 @@ export async function runAgent(
       });
 
       for (const call of round.toolCalls) {
-        console.log('TOOL CALL RAW ARGS:', call.function.arguments);
         const parsed = WebSearchArgs.safeParse(safeJson(call.function.arguments));
         if (!parsed.success) {
-          console.log('TOOL CALL PARSE ERROR:', briefZod(parsed.error));
           invalidStrikes++;
           messages.push(
             toolMsg(call.id, makeInvalidArgsPrompt(briefZod(parsed.error)))
@@ -365,16 +289,22 @@ export async function runAgent(
 
         const gaps = detectEvidenceGaps(expectedEntities, evidenceStore);
         if (gaps.length > 0 && budget.room() > 0) {
-          console.log(`[GAP DETECTION] Re-querying ${gaps.length} entities lacking evidence: ${gaps.join(', ')}`);
           emit('status', {
             step: 'search',
             state: 'active',
             detail: `round 2 · gap re-query: ${gaps.join(', ')}`,
           });
 
+          const topicTerms = ctx.userText
+            .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+            .split(/\s+/)
+            .filter(w => w.length > 2 && !STOPWORDS.has(w.toLowerCase()))
+            .slice(0, 4)
+            .join(' ');
+
           const gapQueries: Query[] = gaps.map(ent =>
             WebSearchQuery.parse({
-              q: `${ent} pricing plans changelog`,
+              q: topicTerms ? `${ent} ${topicTerms}` : ent,
               entity: ent,
               kind: 'current' as const,
               read: true,

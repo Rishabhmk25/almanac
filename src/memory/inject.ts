@@ -13,7 +13,7 @@ import {
 import { embedText, generateDeterministicEmbedding } from './embeddings.js';
 import { TemporalHint } from '../agent/time.js';
 
-export const MEMORY_TOKEN_CAP = cfg.memoryTokenCap || 1500;
+export const MEMORY_TOKEN_CAP = cfg.memoryTokenCap || 2000;
 export const ANSWER_CAP_CHARS = 1000;
 
 export function estTokens(s: string): number {

@@ -130,8 +130,10 @@ export const FALLBACKS = {
   empty: "I couldn't produce an answer this time. The sources I did find are listed under this message.",
   tavilyDown: "Web search didn't respond, so this answer uses our notes only.",
   tavilyMissing: "Web search is switched off, so I can only use our notes and what you tell me.",
+  rateLimited: "I'm being rate-limited right now. Give me about a minute and ask again.",
+  missingApiKey: "The server has no LLM API key configured yet. Add GEMINI_API_KEY to .env and restart.",
   groq429: "I'm being rate-limited right now. Give me about a minute and ask again.",
-  groqMissing: "The server has no Groq key yet. Add GROQ_API_KEY to .env and restart.",
+  groqMissing: "The server has no LLM API key configured yet. Add GEMINI_API_KEY to .env and restart.",
   streamDropped: "Connection dropped before I could answer. Try again.",
 };
 

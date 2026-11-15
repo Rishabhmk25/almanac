@@ -15,10 +15,10 @@ export function buildAliases(entities: string[], ev: EvidenceItem[]): Map<string
   for (const ent of entities) {
     if (!ent.trim()) continue;
     addAlias(ent, ent);
-    // Strip generic suffixes: CRM, Inc, Sales, Hub, Platform
-    const stripped = ent.replace(/\b(CRM|Inc|Sales|Hub|Platform|Software)\b/gi, '').trim();
-    if (stripped.length >= 3 && stripped.toLowerCase() !== ent.toLowerCase()) {
-      addAlias(ent, stripped);
+    // For multi-word entity names, index the primary leading brand token
+    const words = ent.split(/\s+/);
+    if (words.length > 1 && words[0]!.length >= 3) {
+      addAlias(ent, words[0]!);
     }
   }
 

@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { cfg } from '../src/config.js';
 import { getDb } from '../src/db/migrate.js';
 import { runAgent, AgentCtx, stripAndFlagCitations, groundCitations } from '../src/agent/loop.js';
 import { EvidenceItem } from '../src/memory/store.js';
@@ -6,9 +7,26 @@ import * as geminiModule from '../src/llm/gemini.js';
 import * as searchModule from '../src/tools/search.js';
 
 describe('Production Path Smoke & Record/Replay Test', () => {
+  const origFeaturesSearch = cfg.features.search;
+  const origFeaturesLlm = cfg.features.llm;
+  const origTavily = cfg.tavilyKey;
+  const origGemini = cfg.geminiKey;
+
   beforeEach(() => {
     getDb(':memory:');
     vi.restoreAllMocks();
+    // Stub hermetic test configuration so tests pass without environment API keys
+    cfg.features.search = true;
+    cfg.features.llm = true;
+    cfg.tavilyKey = 'test-tavily-key';
+    cfg.geminiKey = 'test-gemini-key';
+  });
+
+  afterEach(() => {
+    cfg.features.search = origFeaturesSearch;
+    cfg.features.llm = origFeaturesLlm;
+    cfg.tavilyKey = origTavily;
+    cfg.geminiKey = origGemini;
   });
 
   it('verifies strip-and-flag citation handling on production output', () => {

@@ -1,0 +1,39 @@
+{
+  "benchmarkedAt": "2026-11-15T23:24:23.987Z",
+  "runs": 20,
+  "measuredLocalPipelineMs": {
+    "memoryRetrieval": {
+      "p50": 1.48,
+      "p95": 31.86
+    },
+    "stripAndFlag": {
+      "p50": 0.01,
+      "p95": 0.26
+    },
+    "humbleVerifier": {
+      "p50": 0.05,
+      "p95": 1.18
+    },
+    "totalLocalOverheadP50Ms": 1.54
+  },
+  "observedTurnLatencyAndCostEstimates": {
+    "directTurn": {
+      "p50Ms": 600,
+      "p95Ms": 1200,
+      "estCostPerTurnUsd": 0.0001,
+      "basis": "Memory retrieval + single direct generation round via Gemini 3.6 Flash without web search"
+    },
+    "singleRoundSearchTurn": {
+      "p50Ms": 3800,
+      "p95Ms": 5400,
+      "estCostPerTurnUsd": 0.004,
+      "basis": "Memory retrieval + 3-5 parallel Tavily web searches + final answer synthesis + verification"
+    },
+    "twoRoundSearchTurn": {
+      "p50Ms": 5600,
+      "p95Ms": 7200,
+      "estCostPerTurnUsd": 0.008,
+      "basis": "Round 1 search + automated gap detection re-query with page extract + synthesis + verification"
+    }
+  }
+}

@@ -13,13 +13,11 @@
     "test": "vitest run",
     "eval": "tsx scripts/eval.ts",
     "eval:e2e": "tsx scripts/eval-e2e.ts",
-    "eval:live": "tsx scripts/eval-e2e.ts",
     "eval:adversarial": "tsx scripts/eval-adversarial.ts",
     "eval:stress": "tsx scripts/eval-stress.ts",
     "eval:temporal": "tsx scripts/eval-matrix.ts",
     "eval:all": "npm run eval && npm run eval:e2e && npm run eval:adversarial && npm run eval:temporal && npm run eval:stress",
     "seed:demo": "tsx scripts/seed-demo.ts",
-    "seed:schedule": "tsx scripts/seed-schedule.ts",
     "db:reset": "tsx scripts/reset-db.ts",
     "import:chatgpt": "tsx scripts/import-chatgpt.ts"
   },

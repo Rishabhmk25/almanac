@@ -578,7 +578,7 @@ Examples:
   if (isJson) {
     console.log(JSON.stringify(scorecard, null, 2));
   } else {
-    const scorecardPath = path.join(process.cwd(), 'scorecard.json');
+    const scorecardPath = path.join(process.cwd(), 'docs', 'scorecard.json');
     fs.writeFileSync(scorecardPath, JSON.stringify(scorecard, null, 2));
     console.log(`Scorecard saved to ${scorecardPath}`);
   }

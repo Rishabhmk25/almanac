@@ -160,7 +160,7 @@ async function main(): Promise<void> {
     totalChecks: checks.length,
     cases: results,
   };
-  const outPath = path.resolve('scorecard-e2e.json');
+  const outPath = path.resolve('docs', 'scorecard-e2e.json');
   fs.writeFileSync(outPath, JSON.stringify(scorecard, null, 2), 'utf8');
   console.log(`\nLive eval: ${scorecard.passedCases}/${scorecard.casesRun} cases, ${scorecard.passedChecks}/${scorecard.totalChecks} checks.`);
   console.log(`Full answers and retrieved source metadata: ${outPath}`);

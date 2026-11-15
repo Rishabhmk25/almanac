@@ -146,7 +146,7 @@ async function main(): Promise<void> {
     const scored = evaluate(testCase, agentResult);
     results.push(scored);
     console.log(`${scored.passed ? 'PASS' : 'FAIL'} ${testCase.id}. ${testCase.name}`);
-    for (const check of scored.checks) console.log(`  ${check.passed ? '✓' : '✗'} ${check.name}: ${check.detail}`);
+    for (const check of scored.checks) console.log(`  ${check.passed ? '[PASS]' : '[FAIL]'} ${check.name}: ${check.detail}`);
   }
 
   const checks = results.flatMap(result => result.checks);

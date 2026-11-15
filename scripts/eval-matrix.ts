@@ -85,12 +85,12 @@ export async function runMatrixEval(): Promise<void> {
     const matchesLabel = hints.some(h => h.label.includes(tc.expectedMatch) || (h.alt && h.alt.label.includes(tc.expectedMatch)));
     const ok = hasEnoughHints && matchesLabel;
     if (ok) passed++;
-    console.log(`| ${i + 1} | "${tc.query}" | ${tc.tz} | ${tc.expectedMatch} | ${ok ? 'PASS ✅' : 'FAIL ❌'} |`);
+    console.log(`| ${i + 1} | "${tc.query}" | ${tc.tz} | ${tc.expectedMatch} | ${ok ? 'PASS' : 'FAIL'} |`);
   }
 
   console.log(`\nTemporal Matrix Score: ${passed}/${testMatrix.length} (${Math.round((passed / testMatrix.length) * 100)}%)`);
   if (passed === testMatrix.length) {
-    console.log('✅ Temporal Date Resolution across timezones verified.\n');
+    console.log('Temporal Date Resolution across timezones verified.\n');
   } else {
     process.exit(1);
   }

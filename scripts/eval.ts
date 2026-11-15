@@ -495,7 +495,7 @@ Examples:
   }
 
   if (activeCases.length === 0) {
-    console.warn('⚠️ No test cases matched your filter criteria.');
+    console.warn('[WARN] No test cases matched your filter criteria.');
     process.exit(0);
   }
 
@@ -521,7 +521,7 @@ Examples:
         } else {
           if (isVerbose) console.log(`  Run ${r + 1}/${runs}: FAIL (${elapsed}ms)`);
           if (bailOnFail) {
-            console.error(`\n❌ Bail requested: Case #${c.id} failed on run ${r + 1}.`);
+            console.error(`\n[FAIL] Bail requested: Case #${c.id} failed on run ${r + 1}.`);
             process.exit(1);
           }
         }

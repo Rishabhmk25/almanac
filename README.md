@@ -11,7 +11,7 @@ A research and memory chat agent with live web search and dated conversational m
 * **Structured Comparison Claims**: For "Has pricing changed?" queries, Almanac aligns earlier product, plan, price, currency, billing period, and source alongside new evidence. Eliminates false change assertions caused by comparing monthly per-seat pricing to annual plans.
 * **Vendor-First Source Quality**: Search plans prioritize official vendor pricing pages and changelogs (`current`, `changelog`) before corroborating with independent news or reviews. Distinguishes verified change announcements from undated pages that merely display a different number.
 * **Humble & Useful Verifier**: Transparently flags unsupported figures, missing citations, product mismatches, and undated evidence. Shows which claim and source triggered each warning without pretending a number match proves full semantic truth.
-* **Polished Editorial Experience**: Date resolution badges (`📅 Tue 3 Nov 2026`), dynamic suggestions reflecting chat memory and web research, transparent verification limits, accessible `:focus-visible` ink rings, sidebar focus trap, and `Ctrl+K` navigation.
+* **Polished Editorial Experience**: Date resolution badges (`Tue 3 Nov 2026`), dynamic suggestions reflecting chat memory and web research, transparent verification limits, accessible `:focus-visible` ink rings, sidebar focus trap, and `Ctrl+K` navigation.
 
 ## Install
 
@@ -138,14 +138,14 @@ Evaluates the complete agent pipeline across core recall questions, edge-case ha
 | # | Test Scenario | Category | Query | Checks / Criteria | Measured Finding | Status |
 |:---:|---|---|---|---|---|:---:|
 | **1** | Date-anchored recall & follow-up | Core | *“What did I ask on 3 Nov? Is your answer still correct today?”* | 5 / 6 checks (83.3%) | Recalls Canny, Productboard, UserVoice `[M1, M2]`. Asks permission rather than auto-firing web search for follow-up. | 5/6 checks |
-| **2** | Pricing comparison & structured claims | Core | *“Has any CRM tool shortlisted Monday changed pricing since?”* | 6 / 6 checks (100%) | Recalls all 5 tools (HubSpot, Pipedrive, Zoho, Freshsales, Close). 10 web results, 19 citations, 0 verifier flags. | PASS ✅ (6/6) |
+| **2** | Pricing comparison & structured claims | Core | *“Has any CRM tool shortlisted Monday changed pricing since?”* | 6 / 6 checks (100%) | Recalls all 5 tools (HubSpot, Pipedrive, Zoho, Freshsales, Close). 10 web results, 19 citations, 0 verifier flags. | PASS (6/6) |
 | **3** | Postgres pricing & gap detection | Core | *“Last Tuesday I asked about Postgres hosting. Has any pricing changed?”* | 5 / 6 checks (83.3%) | Recalls Supabase & Neon. Gap detection triggered. Verifier caught ungrounded `$0.35` figure in Neon summary. | 5/6 checks |
-| **4** | Missing history (honest abstention) | Hard Case | *“What did we agree on with the ACME vendor on 12 August?”* | 100% | Recalls zero notes; cleanly abstains with *"I have no record of ACME vendor or 12 August"* without hallucinating agreements. | PASS ✅ |
-| **5** | Ambiguous dates (two readings) | Hard Case | *“What did I ask on Friday?”* | 100% | Disambiguates Friday into primary (Fri 13 Nov) and alternate reading (Fri 6 Nov); retrieves notes for both windows. | PASS ✅ |
-| **6** | Failed searches (graceful degradation) | Hard Case | *“What is the current pricing of Linear as of today?”* | 100% | When web search produces no valid pricing records, reports unverified status cleanly instead of inventing prices. | PASS ✅ |
-| **7** | Conflicting sources (nuanced reporting) | Hard Case | *“What is the Pro plan price for AcmeCloud?”* | 100% | When secondary sources conflict (e.g. $15/mo blog vs $20/mo official docs), highlights the discrepancy and dates. | PASS ✅ |
-| **8** | Stale & undated pages | Hard Case | *“Has WidgetCorp changed pricing since last month?”* | 100% | When pricing sources lack publish dates, verifier flags undated evidence and warns that change timing is unverified. | PASS ✅ |
-| **9** | Generalization boundary (out-of-domain) | Generalization | *“Write a Python function to compute compound interest on $10,000 at 5.5%...”* | Boundary Test | Memory finds no notes; grounding verifier flags ungrounded numbers ($10,000, 5.5%, 3), enforcing evidence grounding. | Boundary ❌ (Expected) |
+| **4** | Missing history (honest abstention) | Hard Case | *“What did we agree on with the ACME vendor on 12 August?”* | 100% | Recalls zero notes; cleanly abstains with *"I have no record of ACME vendor or 12 August"* without hallucinating agreements. | PASS |
+| **5** | Ambiguous dates (two readings) | Hard Case | *“What did I ask on Friday?”* | 100% | Disambiguates Friday into primary (Fri 13 Nov) and alternate reading (Fri 6 Nov); retrieves notes for both windows. | PASS |
+| **6** | Failed searches (graceful degradation) | Hard Case | *“What is the current pricing of Linear as of today?”* | 100% | When web search produces no valid pricing records, reports unverified status cleanly instead of inventing prices. | PASS |
+| **7** | Conflicting sources (nuanced reporting) | Hard Case | *“What is the Pro plan price for AcmeCloud?”* | 100% | When secondary sources conflict (e.g. $15/mo blog vs $20/mo official docs), highlights the discrepancy and dates. | PASS |
+| **8** | Stale & undated pages | Hard Case | *“Has WidgetCorp changed pricing since last month?”* | 100% | When pricing sources lack publish dates, verifier flags undated evidence and warns that change timing is unverified. | PASS |
+| **9** | Generalization boundary (out-of-domain) | Generalization | *“Write a Python function to compute compound interest on $10,000 at 5.5%...”* | Boundary Test | Memory finds no notes; grounding verifier flags ungrounded numbers ($10,000, 5.5%, 3), enforcing evidence grounding. | Boundary (Expected) |
 
 ---
 
@@ -158,7 +158,7 @@ In addition to the E2E scenarios above, Almanac runs four specialized automated 
 | **Component Invariants** | `npm run eval` | 24 cases &times; 3 runs | **72 / 72 (100%)** | FTS5 recall, budget caps, entity quotas, invented-price traps, prompt injection defense, and query timeout isolation. |
 | **Adversarial Robustness** | `npm run eval:adversarial` | 6 threat models | **6 / 6 (100%)** | Prompt injection overrides, SQL injection escapes, citation forgery (`[W99]`), HTML/XSS sanitization, and API secret leakage. |
 | **Temporal Matrix** | `npm run eval:temporal` | 8 timezones & offsets | **8 / 8 (100%)** | Date parsing across UTC, US/Eastern, Europe/London, Asia/Kolkata (IST), and Pacific/Auckland with DST safety. |
-| **Concurrency & Stress** | `npm run eval:stress` | 2 load regimes | **PASS ✅** | Strict 30 RPM throttler compliance across concurrent bursts and 12,000-character evidence budget protection. |
+| **Concurrency & Stress** | `npm run eval:stress` | 2 load regimes | **PASS** | Strict 30 RPM throttler compliance across concurrent bursts and 12,000-character evidence budget protection. |
 | **Unit Test Suite** | `npm test` | 7 test files | **54 / 54 (100%)** | Unit invariants for date parsing, BM25/vector embeddings, memory injection, search batching, and claim verification. |
 
 ## Architecture

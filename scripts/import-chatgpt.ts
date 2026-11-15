@@ -171,7 +171,7 @@ if (filePath) {
   console.log(`Parsed ${parsed.length} conversations.`);
 
   const stats = importConversationsIntoDb(parsed);
-  console.log(`✓ Successfully imported into Almanac:`);
+  console.log(`[OK] Successfully imported into Almanac:`);
   console.log(`  Conversations: ${stats.conversationsCount}`);
   console.log(`  Messages: ${stats.messagesCount}`);
 } else if (process.argv[1]?.endsWith('import-chatgpt.ts')) {

@@ -17,6 +17,6 @@ const counts = {
   messages: (db.prepare('SELECT count(*) as c FROM messages').get() as { c: number }).c,
 };
 
-console.log('✓ Almanac database reset to zero:');
+console.log('[OK] Almanac database reset to zero:');
 console.log(`  Conversations: ${counts.conversations}`);
 console.log(`  Messages: ${counts.messages}`);

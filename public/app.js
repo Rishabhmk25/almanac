@@ -233,7 +233,7 @@
     if (flag.sourceRef) metaParts.push(`Source: ${flag.sourceRef}`);
     if (flag.stale) metaParts.push('Undated/stale evidence');
     body.append(h('div', 'src-meta', metaParts.join(' · ')));
-    body.append(h('div', 'src-verifier-note', '⚠️ Verifier limit: token overlap does not verify full semantic truth. Check original source.'));
+    body.append(h('div', 'src-verifier-note', '[Note] Verifier limit: token overlap does not verify full semantic truth. Check original source.'));
     row.append(badge, body);
     return row;
   }
@@ -294,7 +294,7 @@
     if (!meta) return;
     meta.querySelectorAll('.resolved-date-tag').forEach((el) => el.remove());
     for (const th of hints) {
-      const tag = h('span', 'resolved-date-tag', `📅 ${th.label}`);
+      const tag = h('span', 'resolved-date-tag', `${th.label}`);
       if (th.alt) tag.title = `Alternate reading: ${th.alt.label}`;
       meta.append(tag);
     }
@@ -310,7 +310,7 @@
     const temporal = m.temporal || (m.meta && m.meta.temporal);
     if (temporal && temporal.length) {
       for (const th of temporal) {
-        const tag = h('span', 'resolved-date-tag', `📅 ${th.label}`);
+        const tag = h('span', 'resolved-date-tag', `${th.label}`);
         if (th.alt) tag.title = `Alternate reading: ${th.alt.label}`;
         meta.append(tag);
       }

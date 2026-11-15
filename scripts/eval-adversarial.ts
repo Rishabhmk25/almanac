@@ -137,16 +137,16 @@ export async function runAdversarialEval(): Promise<void> {
     try {
       const ok = await c.run();
       if (ok) passed++;
-      console.log(`| ${c.id} | ${c.name} | ${c.threatCategory} | ${ok ? 'PASS ✅' : 'FAIL ❌'} |`);
+      console.log(`| ${c.id} | ${c.name} | ${c.threatCategory} | ${ok ? 'PASS' : 'FAIL'} |`);
     } catch (err) {
       console.error(`Error in case ${c.id}:`, err);
-      console.log(`| ${c.id} | ${c.name} | ${c.threatCategory} | FAIL ❌ |`);
+      console.log(`| ${c.id} | ${c.name} | ${c.threatCategory} | FAIL |`);
     }
   }
 
   console.log(`\nAdversarial Score: ${passed}/${cases.length} (${Math.round((passed / cases.length) * 100)}%)`);
   if (passed === cases.length) {
-    console.log('✅ All adversarial and prompt-injection defenses verified.\n');
+    console.log('All adversarial and prompt-injection defenses verified.\n');
   } else {
     process.exit(1);
   }

@@ -29,7 +29,7 @@ export async function runStressEval(): Promise<void> {
     }
   }
 
-  console.log(`Pacer Strict 30 RPM Compliance: ${pacerCompliant ? 'PASS ✅' : 'FAIL ❌'}`);
+  console.log(`Pacer Strict 30 RPM Compliance: ${pacerCompliant ? 'PASS' : 'FAIL'}`);
 
   console.log('\n2. Testing High Volume Evidence Truncation & Budget Protection...');
   const budget = new Budget(cfg.budget);
@@ -55,10 +55,10 @@ export async function runStressEval(): Promise<void> {
   console.log(`Total snippet chars: ${totalChars} chars`);
 
   const budgetProtected = totalChars <= cfg.budget.maxEvidenceChars;
-  console.log(`Evidence Budget Protection: ${budgetProtected ? 'PASS ✅' : 'FAIL ❌'}`);
+  console.log(`Evidence Budget Protection: ${budgetProtected ? 'PASS' : 'FAIL'}`);
 
   if (pacerCompliant && budgetProtected) {
-    console.log('\n✅ Stress & Rate-Limit Evaluation Passed.\n');
+    console.log('\nStress & Rate-Limit Evaluation Passed.\n');
   } else {
     process.exit(1);
   }

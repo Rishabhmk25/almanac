@@ -314,7 +314,7 @@ The CI/CD pipeline triggers an automatic rollback to the previous release if:
     messages: (db.prepare('SELECT count(*) as c FROM messages').get() as { c: number }).c,
   };
 
-  console.log(`✓ Seeded ${chats.length} schedule & workflow conversations into Almanac:`);
+  console.log(`[OK] Seeded ${chats.length} schedule & workflow conversations into Almanac:`);
   console.log(`  Total Conversations: ${counts.conversations}`);
   console.log(`  Total Messages: ${counts.messages}`);
 }

@@ -143,15 +143,21 @@ function splitSentences(text: string): string[] {
 export function verify(
   answer: string,
   ev: EvidenceItem[],
-  entities: string[]
+  entities: string[] = []
 ): { text: string; flags: Flag[] } {
   const byRef = new Map(ev.map(e => [e.ref, e]));
   const aliases = buildAliases(entities, ev);
   const flags: Flag[] = [];
 
-  const mark = (reason: string): string => {
+  const mark = (reason: string, details?: { claim?: string; sourceRef?: string; stale?: boolean }): string => {
     const id = `U${flags.length + 1}`;
-    flags.push({ id, reason });
+    flags.push({
+      id,
+      reason,
+      claim: details?.claim?.trim(),
+      sourceRef: details?.sourceRef,
+      stale: details?.stale,
+    });
     return ` [${id}]`;
   };
 
@@ -181,26 +187,35 @@ export function verify(
         let cellContent = cell.trim();
         const cites = [...citesIn(cellContent), ...(citesIn(cellContent).length === 0 ? rowCites : [])];
         const items = cites.map(r => byRef.get(r));
+        const firstCite = cites[0];
 
         if (items.some(i => i === undefined)) {
-          return ` ${cellContent}${mark('Cites a source that does not exist.')} `;
+          return ` ${cellContent}${mark('Cites a source that does not exist.', { claim: cellContent, sourceRef: firstCite })} `;
         }
 
         const nums = extractFigures(cellContent);
         if (nums.length > 0 && cites.length === 0) {
-          return ` ${cellContent}${mark('Figure without a source.')} `;
+          return ` ${cellContent}${mark('Figure without a source.', { claim: cellContent })} `;
         }
 
         for (const n of nums) {
           if (!items.some(i => i && containsFigure(i.snippet, n))) {
-            return ` ${cellContent}${mark(`${n} is not in the cited source.`)} `;
+            return ` ${cellContent}${mark(`${n} is not in the cited source.`, { claim: cellContent, sourceRef: firstCite })} `;
           }
         }
 
         const named = entitiesNamedIn(cellContent, aliases);
         const namedInRow = named.length ? named : rowEntities;
         if (nums.length > 0 && namedInRow.length > 0 && !items.some(i => i && namedInRow.some(e => itemMentions(i, aliases.get(e) ?? [])))) {
-          return ` ${cellContent}${mark('The cited source does not mention the product named here.')} `;
+          return ` ${cellContent}${mark('The cited source does not mention the product named here.', { claim: cellContent, sourceRef: firstCite })} `;
+        }
+
+        // Stale/undated check on change assertions
+        if (/\b(changed|increased|decreased|new price|updated pricing|announced)\b/i.test(cellContent)) {
+          const webItem = items.find(i => i && i.kind === 'web');
+          if (webItem && (!webItem.published || webItem.published === 'unknown')) {
+            return ` ${cellContent}${mark('Cited source is undated or stale; cannot verify when the value changed.', { claim: cellContent, sourceRef: webItem.ref, stale: true })} `;
+          }
         }
 
         return ` ${cellContent} `;
@@ -218,25 +233,34 @@ export function verify(
     const processedSentences = sentences.map(seg => {
       const cites = citesIn(seg);
       const items = cites.map(r => byRef.get(r));
+      const firstCite = cites[0];
 
       if (items.some(i => i === undefined)) {
-        return seg + mark('Cites a source that does not exist.');
+        return seg + mark('Cites a source that does not exist.', { claim: seg, sourceRef: firstCite });
       }
 
       const nums = extractFigures(seg);
       if (nums.length > 0 && cites.length === 0) {
-        return seg + mark('Figure without a source.');
+        return seg + mark('Figure without a source.', { claim: seg });
       }
 
       for (const n of nums) {
         if (!items.some(i => i && containsFigure(i.snippet, n))) {
-          return seg + mark(`${n} is not in the cited source.`);
+          return seg + mark(`${n} is not in the cited source.`, { claim: seg, sourceRef: firstCite });
         }
       }
 
       const named = entitiesNamedIn(seg, aliases);
       if (nums.length > 0 && named.length > 0 && !items.some(i => i && named.some(e => itemMentions(i, aliases.get(e) ?? [])))) {
-        return seg + mark('The cited source does not mention the product named here.');
+        return seg + mark('The cited source does not mention the product named here.', { claim: seg, sourceRef: firstCite });
+      }
+
+      // Stale/undated check on change assertions
+      if (/\b(changed|increased|decreased|new price|updated pricing|announced)\b/i.test(seg)) {
+        const webItem = items.find(i => i && i.kind === 'web');
+        if (webItem && (!webItem.published || webItem.published === 'unknown')) {
+          return seg + mark('Cited source is undated or stale; cannot verify when the value changed.', { claim: seg, sourceRef: webItem.ref, stale: true });
+        }
       }
 
       return seg;

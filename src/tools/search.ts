@@ -506,12 +506,14 @@ export function formatToolResult(
       const retrieved = nowHuman('UTC');
       const snippet = sanitizeTags((r.content || '').slice(0, 500));
 
-      parts.push(`UNTRUSTED WEB RESULT JSON: ${JSON.stringify({ domain, published: pub, retrieved, url: canonicalUrl(r.url), snippet })}`);
+      parts.push(`UNTRUSTED WEB RESULT JSON: ${JSON.stringify({ domain, published: pub, retrieved, url: canonicalUrl(r.url), snippet })} [published="${pub}"]`);
     }
     parts.push('');
   }
 
   if (dropped.length > 0) {
+    const droppedQueries = dropped.map(d => `"${d.q}"`).join(', ');
+    parts.push(`NOT RUN (budget): ${dropped.length} queries (${droppedQueries}).`);
     parts.push(`NOT RUN (budget) JSON: ${JSON.stringify(dropped.map(d => d.q))}`);
   }
 
@@ -519,6 +521,7 @@ export function formatToolResult(
   if (allKnownEntities.length > 0) {
     const gaps = allKnownEntities.filter(e => !coveredEntities.has(e.toLowerCase()));
     if (gaps.length > 0) {
+      parts.push(`ENTITIES WITH NO EVIDENCE YET: ${gaps.join(', ')}.`);
       parts.push(`ENTITIES WITH NO EVIDENCE YET JSON: ${JSON.stringify(gaps)}`);
     }
   }

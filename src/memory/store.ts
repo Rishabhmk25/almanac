@@ -20,6 +20,9 @@ export interface EvidenceItem {
 export interface Flag {
   id: string;                     // id = 'U1'..
   reason: string;
+  claim?: string;                 // The specific claim text flagged
+  sourceRef?: string;             // The cited source tag (e.g. W1, M1)
+  stale?: boolean;                // Flagged due to stale or undated source evidence
 }
 
 export interface TraceStep {
@@ -38,6 +41,7 @@ export interface MessageMeta {
   reads?: number;
   elapsedMs?: number;
   degraded?: string[];
+  temporal?: Array<{ phrase: string; label: string; alt?: { phrase: string; label: string } }>;
 }
 
 export interface MessageRow {

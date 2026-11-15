@@ -415,18 +415,96 @@ export async function runEval(): Promise<void> {
     },
   ];
 
+  // Parse CLI flags
+  const args = process.argv.slice(2);
+  if (args.includes('--help') || args.includes('-h')) {
+    console.log(`
+Almanac Component Invariant Evaluation Runner
+
+Usage:
+  npm run eval [-- options]
+
+Options:
+  --category=<cat>     Filter by category: recall, verifier, budget, fault, security, formatting
+  --case=<id>          Run a specific test case by ID (1-23)
+  --filter=<str>       Run test cases matching substring in name or description
+  --runs=<n>           Number of test runs per case (default: 3)
+  --bail               Stop immediately on first failure
+  --verbose            Show detailed execution logs
+  --json               Output machine-readable JSON scorecard
+  --help, -h           Show this help message
+
+Examples:
+  npm run eval -- --category=verifier
+  npm run eval -- --case=11 --verbose
+  npm run eval -- --filter="postgres" --runs=5
+`);
+    process.exit(0);
+  }
+
+  const getArg = (prefix: string) => {
+    const item = args.find(a => a.startsWith(prefix));
+    return item ? item.slice(prefix.length) : null;
+  };
+
+  const categoryFilter = getArg('--category=')?.toLowerCase();
+  const caseIdArg = getArg('--case=');
+  const caseIdFilter = caseIdArg ? parseInt(caseIdArg, 10) : null;
+  const filterArg = getArg('--filter=')?.toLowerCase();
+  const runsArg = getArg('--runs=');
+  const targetRuns = runsArg ? Math.max(1, parseInt(runsArg, 10)) : 3;
+  const bailOnFail = args.includes('--bail');
+  const isVerbose = args.includes('--verbose');
+  const isJson = args.includes('--json');
+
+  let activeCases = cases;
+  if (categoryFilter) {
+    activeCases = activeCases.filter(c => c.category.toLowerCase() === categoryFilter);
+    console.log(`Filtered by category: "${categoryFilter}" (${activeCases.length} cases)`);
+  }
+  if (caseIdFilter !== null && !isNaN(caseIdFilter)) {
+    activeCases = activeCases.filter(c => c.id === caseIdFilter);
+    console.log(`Filtered by Case ID: #${caseIdFilter} (${activeCases.length} cases)`);
+  }
+  if (filterArg) {
+    activeCases = activeCases.filter(c => c.name.toLowerCase().includes(filterArg) || c.description.toLowerCase().includes(filterArg));
+    console.log(`Filtered by search term: "${filterArg}" (${activeCases.length} cases)`);
+  }
+
+  if (activeCases.length === 0) {
+    console.warn('⚠️ No test cases matched your filter criteria.');
+    process.exit(0);
+  }
+
   const results: Array<{ id: number; name: string; category: string; passes: number; total: number; passRate: string }> = [];
 
-  for (const c of cases) {
+  for (const c of activeCases) {
     let passes = 0;
-    const runs = 3;
+    const runs = targetRuns;
+
+    if (isVerbose) {
+      console.log(`\n▶ Running Case #${c.id}: ${c.name} [${c.category}]`);
+      console.log(`  Description: ${c.description}`);
+    }
 
     for (let r = 0; r < runs; r++) {
       try {
+        const t0 = Date.now();
         const ok = await c.run();
-        if (ok) passes++;
+        const elapsed = Date.now() - t0;
+        if (ok) {
+          passes++;
+          if (isVerbose) console.log(`  Run ${r + 1}/${runs}: PASS (${elapsed}ms)`);
+        } else {
+          if (isVerbose) console.log(`  Run ${r + 1}/${runs}: FAIL (${elapsed}ms)`);
+          if (bailOnFail) {
+            console.error(`\n❌ Bail requested: Case #${c.id} failed on run ${r + 1}.`);
+            process.exit(1);
+          }
+        }
       } catch (err) {
         console.error(`Error in case ${c.id} run ${r}:`, err);
+        if (bailOnFail) process.exit(1);
       }
     }
 
@@ -441,31 +519,46 @@ export async function runEval(): Promise<void> {
     });
   }
 
-  console.log('| # | Case | Category | Pass Rate (3 runs) |');
-  console.log('|---|---|---|---|');
-  for (const res of results) {
-    console.log(`| ${res.id} | ${res.name} | ${res.category} | ${res.passRate} (${res.passes}/${res.total}) |`);
+  if (!isJson) {
+    console.log('\n| # | Case | Category | Pass Rate |');
+    console.log('|---|---|---|---|');
+    for (const res of results) {
+      console.log(`| ${res.id} | ${res.name} | ${res.category} | ${res.passRate} (${res.passes}/${res.total}) |`);
+    }
+
+    const overallPasses = results.reduce((acc, r) => acc + r.passes, 0);
+    const overallTotal = results.length * targetRuns;
+    const overallPercent = Math.round((overallPasses / overallTotal) * 100);
+
+    console.log(`\nOverall Score: ${overallPasses}/${overallTotal} (${overallPercent}%)`);
+    console.log(`Evaluation: ${results.length} active assertion cases across ${targetRuns} repetitions`);
   }
 
   const overallPasses = results.reduce((acc, r) => acc + r.passes, 0);
-  const overallTotal = results.length * 3;
+  const overallTotal = results.length * targetRuns;
   const overallPercent = Math.round((overallPasses / overallTotal) * 100);
-
-  console.log(`\nOverall Score: ${overallPasses}/${overallTotal} (${overallPercent}%)`);
-  console.log('Deterministic Evaluation: 23 concrete assertion cases');
-  console.log('Status: All 23 invariant test suites executed against SQLite FTS5, date parser, verifier & budget models.');
 
   const scorecard = {
     evaluatedAt: new Date().toISOString(),
     evalType: 'rigorous-assertions',
     overallScore: `${overallPasses}/${overallTotal}`,
     overallPercentage: `${overallPercent}%`,
+    filters: {
+      category: categoryFilter || null,
+      caseId: caseIdFilter || null,
+      filter: filterArg || null,
+      runs: targetRuns,
+    },
     cases: results,
   };
 
-  const scorecardPath = path.join(process.cwd(), 'scorecard.json');
-  fs.writeFileSync(scorecardPath, JSON.stringify(scorecard, null, 2));
-  console.log(`\nScorecard saved to ${scorecardPath}`);
+  if (isJson) {
+    console.log(JSON.stringify(scorecard, null, 2));
+  } else {
+    const scorecardPath = path.join(process.cwd(), 'scorecard.json');
+    fs.writeFileSync(scorecardPath, JSON.stringify(scorecard, null, 2));
+    console.log(`Scorecard saved to ${scorecardPath}`);
+  }
 }
 
 runEval().catch(err => {

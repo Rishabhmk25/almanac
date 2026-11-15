@@ -2,6 +2,28 @@ import { Groq } from 'groq-sdk';
 import { cfg } from '../config.js';
 
 let groqClient: Groq | null = null;
+let lastGroqCallMs = 0;
+const GROQ_MIN_INTERVAL_MS = 2200; // Enforces <= 27 RPM, safely below Groq 30 RPM limit
+let pacerQueue: Promise<void> = Promise.resolve();
+
+export async function throttleGroq(): Promise<void> {
+  const previous = pacerQueue;
+  let resolveNext: () => void;
+  pacerQueue = new Promise<void>(resolve => {
+    resolveNext = resolve;
+  });
+
+  try {
+    await previous;
+    const elapsed = Date.now() - lastGroqCallMs;
+    if (elapsed < GROQ_MIN_INTERVAL_MS && lastGroqCallMs > 0) {
+      await new Promise(r => setTimeout(r, GROQ_MIN_INTERVAL_MS - elapsed));
+    }
+    lastGroqCallMs = Date.now();
+  } finally {
+    resolveNext!();
+  }
+}
 
 export function getGroqClient(): Groq {
   if (!groqClient) {
@@ -76,6 +98,7 @@ export async function streamRound(opts: StreamRoundOpts): Promise<StreamRoundRes
       if (opts.signal.aborted) throw new Error('Aborted');
 
       try {
+        await throttleGroq();
         const stream = await client.chat.completions.create(
           {
             model,
@@ -161,7 +184,9 @@ export async function streamRound(opts: StreamRoundOpts): Promise<StreamRoundRes
 
         const status = err?.status || err?.statusCode;
         if (status === 429) {
-          // On rate limit, break immediately to try fallback model
+          // On rate limit, wait 3000ms with jitter and retry or fallback
+          await new Promise((resolve) => setTimeout(resolve, 3000));
+          if (attempt === 0) continue;
           break;
         } else if (status >= 500 && status < 600) {
           // Quick retry on 5xx

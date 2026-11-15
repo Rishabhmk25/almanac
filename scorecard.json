@@ -1,8 +1,14 @@
 {
-  "evaluatedAt": "2026-11-15T12:35:37.234Z",
+  "evaluatedAt": "2026-11-15T14:58:57.733Z",
   "evalType": "rigorous-assertions",
-  "overallScore": "63/69",
-  "overallPercentage": "91%",
+  "overallScore": "69/69",
+  "overallPercentage": "100%",
+  "filters": {
+    "category": null,
+    "caseId": null,
+    "filter": null,
+    "runs": 3
+  },
   "cases": [
     {
       "id": 1,
@@ -120,9 +126,9 @@
       "id": 15,
       "name": "Undated pricing page format caveat",
       "category": "formatting",
-      "passes": 0,
+      "passes": 3,
       "total": 3,
-      "passRate": "0%"
+      "passRate": "100%"
     },
     {
       "id": 16,
@@ -144,9 +150,9 @@
       "id": 18,
       "name": "FAULT=query_timeout isolates single failed query",
       "category": "fault",
-      "passes": 0,
+      "passes": 3,
       "total": 3,
-      "passRate": "0%"
+      "passRate": "100%"
     },
     {
       "id": 19,

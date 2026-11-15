@@ -53,40 +53,63 @@
     </div>
   </aside>
 
-  <!-- Main Workspace Shell (No Top Bar) -->
-  <div class="shell">
-    <!-- Floating Magazine Cutout Controls (Replaces the generic top bar) -->
-    <div class="floating-controls">
-      <button id="toggleSidebar" class="cutout-tab" type="button" aria-label="Open pages sidebar">
-        <span class="tab-icon">&#9776;</span>
-        <span class="tab-label">PAGES</span>
-      </button>
-      <button id="quickNewChat" class="cutout-tab quick-new" type="button" aria-label="Start new page">
-        <span class="tab-plus">+</span>
-        <span class="tab-label">NEW</span>
-      </button>
-      <button id="toggleTheme" class="cutout-tab theme-toggle" type="button" aria-label="Switch to dark mode" aria-pressed="false">
-        <span class="tab-icon" aria-hidden="true">&#9790;</span>
-        <span class="tab-label">DARK</span>
-      </button>
-      <div id="activePageTag" class="active-page-tag" hidden></div>
-    </div>
+  <!-- Left Side Navigation Dock (Pages & New Page) -->
+  <nav class="left-nav" aria-label="Page navigation">
+    <button id="toggleSidebar" class="cutout-tab left-tab" type="button" aria-label="Open pages sidebar" title="Open pages and notes history (Ctrl+B)">
+      <span class="tab-icon" aria-hidden="true">&#9776;</span>
+      <span class="tab-label">PAGES</span>
+    </button>
+    <button id="quickNewChat" class="cutout-tab left-tab quick-new" type="button" aria-label="Start new page" title="Start fresh page">
+      <span class="tab-plus" aria-hidden="true">+</span>
+      <span class="tab-label">NEW</span>
+    </button>
+  </nav>
 
+  <!-- Fixed Top Right Controls (Theme Toggle & Active Page Tag) -->
+  <div class="top-right-controls">
+    <div id="activePageTag" class="active-page-tag" hidden></div>
+    <button id="toggleTheme" class="cutout-tab theme-toggle" type="button" aria-label="Switch to dark mode" aria-pressed="false">
+      <span class="tab-icon" aria-hidden="true">&#9790;</span>
+      <span class="tab-label">DARK</span>
+    </button>
+  </div>
+
+  <!-- Quick Navigation Dock for Chat Thread (Right Side) -->
+  <nav id="chatNav" class="chat-nav" aria-label="Chat quick navigation" hidden>
+    <div class="chat-nav-tape" aria-hidden="true"></div>
+    <button id="navJumpTop" class="cutout-btn chat-nav-btn" type="button" aria-label="Jump to top of chat" title="Jump to top">
+      <span class="nav-arrow" aria-hidden="true">&#9650;</span>
+      <span class="nav-label">TOP</span>
+    </button>
+    <div id="navTurnBadge" class="chat-nav-badge" title="Messages in this conversation" aria-live="polite">
+      0 MSGS
+    </div>
+    <button id="navJumpBottom" class="cutout-btn chat-nav-btn" type="button" aria-label="Jump to latest message" title="Jump to latest">
+      <span class="nav-arrow" aria-hidden="true">&#9660;</span>
+      <span class="nav-label">END</span>
+    </button>
+  </nav>
+
+  <!-- Main Workspace Shell -->
+  <div class="shell">
     <div class="banner" id="banner" hidden></div>
 
     <main class="thread" id="thread" role="log" aria-live="polite" aria-busy="false"></main>
 
-    <form class="composer" id="composer">
-      <div class="composer-tape"></div>
-      <label class="sr" for="input">Message</label>
-      <textarea id="input" rows="1" maxlength="4000"
-        placeholder="Ask anything. I'll check our notes first, then the web."></textarea>
-      <button class="send cutout-btn" id="send" type="submit" aria-label="Send" disabled>&#8629;</button>
-    </form>
+    <div class="composer-wrap">
+      <form class="composer" id="composer">
+        <div class="composer-tape"></div>
+        <label class="sr" for="input">Message</label>
+        <textarea id="input" rows="1" maxlength="4000"
+          placeholder="Ask anything. I'll check our notes first, then the web."></textarea>
+        <button class="send cutout-btn" id="send" type="submit" aria-label="Send" disabled>&#8629;</button>
+      </form>
+    </div>
   </div>
 
   <script src="/vendor/marked.umd.js"></script>
   <script src="/vendor/purify.min.js"></script>
+  <script src="/vendor/highlight.min.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>

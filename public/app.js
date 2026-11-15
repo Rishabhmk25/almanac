@@ -21,6 +21,8 @@
   const toggleSidebarBtn = $('#toggleSidebar'), closeSidebarBtn = $('#closeSidebar');
   const quickNewChatBtn = $('#quickNewChat'), activePageTag = $('#activePageTag');
   const themeToggleBtn = $('#toggleTheme');
+  const chatNav = $('#chatNav'), navJumpTop = $('#navJumpTop');
+  const navJumpBottom = $('#navJumpBottom'), navTurnBadge = $('#navTurnBadge');
   const state = { convs: [], activeId: null, current: null, busy: false };
 
   function setTheme(theme, save = false) {
@@ -28,7 +30,7 @@
     document.documentElement.dataset.theme = dark ? 'dark' : 'light';
     if (themeToggleBtn) {
       themeToggleBtn.setAttribute('aria-pressed', String(dark));
-      themeToggleBtn.setAttribute('aria-label', 'Toggle dark mode');
+      themeToggleBtn.setAttribute('aria-label', dark ? 'Switch to light mode' : 'Switch to dark mode');
       $('.tab-icon', themeToggleBtn).textContent = dark ? '☀' : '☾';
       $('.tab-label', themeToggleBtn).textContent = dark ? 'LIGHT' : 'DARK';
     }
@@ -40,15 +42,16 @@
   setTheme(document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light');
 
   const PROMPT_SUGGESTIONS = [
+    'What did I ask on 3 November?',
+    'Has CRM tool pricing changed since Monday?',
+    'Compare Postgres managed database pricing between Supabase and Neon',
     'What is on my schedule and task list for today?',
     'When is my meeting with Marcus on Saturday and what is the agenda?',
     'What are my daily deep work routine and focus rules?',
     'What did I discuss in my 1-on-1 with Elena on Monday?',
     'What are the milestones and deadlines for Project Falcon?',
     'What is our production release checklist and rollback condition?',
-    'What topics did I plan to study over the weekend?',
     'What recurring standups and workouts do I have this week?',
-    'What are my key action items from this week?',
   ];
 
   function getDynamicSuggestions() {
@@ -57,7 +60,7 @@
       const validConvs = state.convs.filter(c => c.title && c.title !== 'Untitled page');
       const shuffled = [...validConvs].sort(() => Math.random() - 0.5);
       for (const c of shuffled) {
-        if (suggestions.length >= 2) break;
+        if (suggestions.length >= 1) break;
         let t = c.title.trim();
         if (t.endsWith('?')) {
           suggestions.push(t);
@@ -113,7 +116,7 @@
   }
 
   /* ---------- markdown + chips (tags are replaced AFTER parsing, on text nodes only) ---------- */
-  function renderMarkdown(m) {
+  function renderMarkdown(m, highlight = true) {
     const tpl = document.createElement('template');
     tpl.innerHTML = DOMPurify.sanitize(marked.parse(m.content || ''), { ADD_ATTR: ['target', 'rel'] });
     const known = new Set([...(m.evidence || []).map((e) => e.ref), ...(m.flags || []).map((f) => f.id)]);
@@ -145,6 +148,7 @@
       t.replaceWith(wrap);
       wrap.append(t);
     });
+    if (highlight) tpl.content.querySelectorAll('pre code').forEach((code) => hljs.highlightElement(code));
     return tpl.content;
   }
 
@@ -196,8 +200,13 @@
     row.dataset.ref = flag.id;
     const badge = h('span', 'badge', '?');
     const body = h('div', 'src-body');
-    body.append(h('span', 'src-title', `Flagged claim ${flag.id}: "${flag.claim}"`));
-    body.append(h('div', 'src-meta', flag.reason));
+    const claimTitle = flag.claim ? `Flagged claim ${flag.id}: “${flag.claim}”` : `Flagged claim ${flag.id}`;
+    body.append(h('span', 'src-title', claimTitle));
+    const metaParts = [flag.reason];
+    if (flag.sourceRef) metaParts.push(`Source: ${flag.sourceRef}`);
+    if (flag.stale) metaParts.push('Undated/stale evidence');
+    body.append(h('div', 'src-meta', metaParts.join(' · ')));
+    body.append(h('div', 'src-verifier-note', '⚠️ Verifier limit: token overlap does not verify full semantic truth. Check original source.'));
     row.append(badge, body);
     return row;
   }
@@ -239,11 +248,27 @@
       wrap.append(extra);
     }
 
+    const limitsNote = h('div', 'verification-limits-note');
+    limitsNote.innerHTML = '<strong>Verification Limits:</strong> Citations confirm extracted figures and quotes against retrieved snapshots. They do not guarantee vendor uptime, third-party page accuracy, unannounced terms, or omitted enterprise tiers.';
+    wrap.append(limitsNote);
+
     if (m.meta && Array.isArray(m.meta.trace)) {
       const tr = h('div', 'trace', m.meta.trace.map((t) => `${t.stage} ${t.ms} ms`).join(' · '));
       wrap.append(tr);
     }
     if (m.status === 'aborted') wrap.append(h('div', 'foot', 'Stopped before I finished.'));
+  }
+
+  function renderTemporalBadge(msgEl, hints) {
+    if (!msgEl || !hints || !hints.length) return;
+    const meta = msgEl.querySelector('.msg-meta');
+    if (!meta) return;
+    meta.querySelectorAll('.resolved-date-tag').forEach((el) => el.remove());
+    for (const th of hints) {
+      const tag = h('span', 'resolved-date-tag', `📅 ${th.label}`);
+      if (th.alt) tag.title = `Alternate reading: ${th.alt.label}`;
+      meta.append(tag);
+    }
   }
 
   function renderMessage(m, { streaming } = {}) {
@@ -253,6 +278,14 @@
     const meta = h('header', 'msg-meta');
     meta.append(h('span', 'who', m.role === 'user' ? 'YOU' : 'ALMANAC'), h('time', '', `${dayLabel(m.createdAt)} · ${clock(m.createdAt)}`));
     if (m.demo) meta.append(h('span', 'demo', 'DEMO'));
+    const temporal = m.temporal || (m.meta && m.meta.temporal);
+    if (temporal && temporal.length) {
+      for (const th of temporal) {
+        const tag = h('span', 'resolved-date-tag', `📅 ${th.label}`);
+        if (th.alt) tag.title = `Alternate reading: ${th.alt.label}`;
+        meta.append(tag);
+      }
+    }
     node.append(meta);
 
     if (m.role === 'assistant') {
@@ -300,6 +333,7 @@
     });
     box.append(hd, chips);
     thread.append(box);
+    updateNav();
   }
 
   function renderList() {
@@ -328,14 +362,31 @@
   }
 
   /* ---------- sidebar controls ---------- */
+  let lastFocusedElement = null;
+
   function openSidebar() {
+    lastFocusedElement = document.activeElement;
     sidebar.classList.add('open');
     sidebarBackdrop.hidden = false;
+    sidebar.setAttribute('aria-hidden', 'false');
+    const focusable = sidebar.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+    if (focusable.length > 0) {
+      focusable[0].focus();
+    }
   }
+
   function closeSidebar() {
+    if (!sidebar.classList.contains('open')) return;
     sidebar.classList.remove('open');
     sidebarBackdrop.hidden = true;
+    sidebar.setAttribute('aria-hidden', 'true');
+    if (lastFocusedElement && typeof lastFocusedElement.focus === 'function') {
+      lastFocusedElement.focus();
+    } else if (toggleSidebarBtn) {
+      toggleSidebarBtn.focus();
+    }
   }
+
   function toggleSidebar() {
     if (sidebar.classList.contains('open')) closeSidebar();
     else openSidebar();
@@ -344,6 +395,30 @@
   /* ---------- behaviour ---------- */
   const nearBottom = () => thread.scrollHeight - thread.scrollTop - thread.clientHeight < 140;
   const toBottom = () => { thread.scrollTop = thread.scrollHeight; };
+  function updateNav() {
+    if (!chatNav) return;
+    const msgs = thread ? thread.querySelectorAll('.msg') : [];
+    const count = msgs.length;
+    if (count === 0) {
+      chatNav.hidden = true;
+      return;
+    }
+    chatNav.hidden = false;
+    if (navTurnBadge) {
+      navTurnBadge.textContent = `${count} ${count === 1 ? 'MSG' : 'MSGS'}`;
+    }
+    if (thread) {
+      const isAtTop = thread.scrollTop <= 20;
+      const isAtBottom = nearBottom();
+      if (navJumpTop) navJumpTop.disabled = isAtTop;
+      if (navJumpBottom) navJumpBottom.disabled = isAtBottom;
+      if (isAtTop && isAtBottom) {
+        chatNav.classList.add('dimmed');
+      } else {
+        chatNav.classList.remove('dimmed');
+      }
+    }
+  }
   const setTitle = (t) => {
     titleEl.textContent = 'ALMANAC';
     document.title = t ? `${t} \u00b7 Almanac` : 'Almanac';
@@ -369,10 +444,14 @@
     state.activeId = c.id;
     state.current = c;
     setTitle(c.title);
-    c.messages.forEach((m) => { m.flags = (m.meta && m.meta.flags) || []; });
+    c.messages.forEach((m) => {
+      m.flags = (m.meta && m.meta.flags) || [];
+      m.temporal = (m.meta && m.meta.temporal) || [];
+    });
     thread.replaceChildren(...c.messages.map((m) => renderMessage(m)));
     renderList();
     toBottom();
+    updateNav();
   }
   function newChat() {
     closeSidebar();
@@ -398,13 +477,14 @@
     const aNode = renderMessage(a, { streaming: true });
     thread.append(aNode);
     toBottom();
+    updateNav();
 
     const body = $('.msg-body', aNode), ticker = $('.ticker', aNode);
     let raf = 0;
-    const paint = () => {
+    const paint = (highlight = false) => {
       raf = 0;
       const stick = nearBottom();
-      body.replaceChildren(renderMarkdown(a));
+      body.replaceChildren(renderMarkdown(a, highlight));
       if (stick) toBottom();
     };
     const schedule = () => { if (!raf) raf = requestAnimationFrame(paint); };
@@ -412,6 +492,12 @@
     try {
       await streamChat({ conversationId: state.activeId, message: text, tz: TZ }, {
         conversation: (d) => { state.activeId = d.id; state.current.id = d.id; if (d.title) setTitle(d.title); },
+        temporal: (d) => {
+          if (d && d.hints && d.hints.length) {
+            a.temporal = d.hints;
+            renderTemporalBadge(aNode, d.hints);
+          }
+        },
         status: (d) => setStep(ticker, d),
         evidence: (d) => { a.evidence = d.items || []; updateSources(aNode, a); },
         token: (d) => { a.content += d.t; schedule(); },
@@ -425,11 +511,12 @@
     } finally {
       if (raf) cancelAnimationFrame(raf);
       a.status = a.status === 'streaming' ? 'complete' : a.status;
-      paint();
+      paint(true);
       updateSources(aNode, a);
       aNode.classList.remove('streaming');
       setBusy(false);
       refreshList();
+      updateNav();
     }
   }
 
@@ -495,8 +582,46 @@
   if (toggleSidebarBtn) toggleSidebarBtn.addEventListener('click', toggleSidebar);
   if (closeSidebarBtn) closeSidebarBtn.addEventListener('click', closeSidebar);
   if (sidebarBackdrop) sidebarBackdrop.addEventListener('click', closeSidebar);
+  
+  if (navJumpTop) {
+    navJumpTop.addEventListener('click', () => {
+      if (thread) thread.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+  }
+  if (navJumpBottom) {
+    navJumpBottom.addEventListener('click', () => {
+      if (thread) thread.scrollTo({ top: thread.scrollHeight, behavior: 'smooth' });
+    });
+  }
+  if (thread) {
+    thread.addEventListener('scroll', updateNav, { passive: true });
+  }
+  
+  if (sidebar) {
+    sidebar.addEventListener('keydown', (e) => {
+      if (e.key === 'Tab') {
+        const focusable = Array.from(sidebar.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')).filter(el => !el.disabled && el.offsetParent !== null);
+        if (!focusable.length) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    });
+  }
+
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') closeSidebar();
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+      e.preventDefault();
+      input.focus();
+      input.select();
+    }
   });
 
   initTypewriterLoading();

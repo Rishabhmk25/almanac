@@ -12,12 +12,18 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "eval": "tsx scripts/eval.ts",
+    "eval:e2e": "tsx scripts/eval-real.ts",
+    "eval:adversarial": "tsx scripts/eval-adversarial.ts",
+    "eval:stress": "tsx scripts/eval-stress.ts",
+    "eval:temporal": "tsx scripts/eval-matrix.ts",
+    "eval:all": "npm run eval && npm run eval:e2e && npm run eval:adversarial && npm run eval:temporal && npm run eval:stress",
     "seed:demo": "tsx scripts/seed-demo.ts",
     "seed:schedule": "tsx scripts/seed-schedule.ts",
     "db:reset": "tsx scripts/reset-db.ts",
     "import:chatgpt": "tsx scripts/import-chatgpt.ts"
   },
   "dependencies": {
+    "@highlightjs/cdn-assets": "11.12.0",
     "@hono/node-server": "2.1.8",
     "better-sqlite3": "13.1.1",
     "chrono-node": "2.10.3",

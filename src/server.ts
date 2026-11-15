@@ -28,9 +28,9 @@ import { buildMemoryContext } from './memory/inject.js';
 import { runAgent } from './agent/loop.js';
 import { checkModels } from './llm/groq.js';
 
-// Enforce non-loopback requirement
-if (cfg.host !== '127.0.0.1' && cfg.host !== 'localhost' && cfg.host !== '::1' && !cfg.adminToken) {
-  console.error('Refusing to start on non-loopback interface without ADMIN_TOKEN');
+// The API has no user authentication, so only bind to loopback.
+if (!['127.0.0.1', 'localhost', '::1'].includes(cfg.host)) {
+  console.error('Refusing to start on a non-loopback interface');
   process.exit(1);
 }
 
@@ -43,8 +43,10 @@ const app = new Hono();
 const require = createRequire(import.meta.url);
 const markedPath = path.join(path.dirname(require.resolve('marked/package.json')), 'lib/marked.umd.js');
 const purifyPath = path.join(path.dirname(require.resolve('dompurify')), 'purify.min.js');
+const highlightPath = path.join(path.dirname(require.resolve('@highlightjs/cdn-assets/package.json')), 'highlight.min.js');
 const markedJs = fs.readFileSync(markedPath, 'utf-8');
 const purifyJs = fs.readFileSync(purifyPath, 'utf-8');
+const highlightJs = fs.readFileSync(highlightPath, 'utf-8');
 
 app.get('/vendor/marked.umd.js', c => {
   return c.body(markedJs, 200, {
@@ -54,6 +56,12 @@ app.get('/vendor/marked.umd.js', c => {
 
 app.get('/vendor/purify.min.js', c => {
   return c.body(purifyJs, 200, {
+    'Content-Type': 'text/javascript',
+  });
+});
+
+app.get('/vendor/highlight.min.js', c => {
+  return c.body(highlightJs, 200, {
     'Content-Type': 'text/javascript',
   });
 });
@@ -163,6 +171,11 @@ app.post('/api/chat', async c => {
   addMessage(conv.id, 'user', message, { id: userMsgId, createdAt: userMsgTime });
 
   const hints = resolveDateHints(message, userMsgTime, tz);
+  const temporalPayload = hints.map(h => ({
+    phrase: h.phrase,
+    label: h.label,
+    alt: h.alt ? { phrase: h.alt.phrase, label: h.alt.label } : undefined,
+  }));
   const excludeIds = [userMsgId, ...recentBefore.map(m => m.id)];
   const memoryContext = buildMemoryContext(message, hints, conv.id, excludeIds, tz);
 
@@ -189,6 +202,7 @@ app.post('/api/chat', async c => {
         flags: res.flags,
         budget: res.budget,
         model: cfg.model,
+        temporal: temporalPayload,
       });
 
       return c.json({
@@ -199,6 +213,7 @@ app.post('/api/chat', async c => {
         flags: res.flags,
         trace: res.trace,
         budget: res.budget,
+        temporal: temporalPayload,
       });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Internal error';
@@ -243,6 +258,10 @@ app.post('/api/chat', async c => {
     // Emit initial conversation event
     await emit('conversation', { id: conv.id, title: conv.title });
 
+    if (temporalPayload.length > 0) {
+      await emit('temporal', { hints: temporalPayload });
+    }
+
     try {
       const res = await runAgent(
         {
@@ -280,6 +299,7 @@ app.post('/api/chat', async c => {
         flags: res.flags,
         budget: res.budget,
         model: cfg.model,
+        temporal: temporalPayload,
       });
 
       await emit('done', {

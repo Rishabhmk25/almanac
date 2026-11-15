@@ -84,6 +84,34 @@ describe('Verifier (verify.ts)', () => {
     expect(res.flags[0]?.reason).toContain('$99 is not in the cited source');
   });
 
+  it('records the specific claim and sourceRef causing each verification warning', () => {
+    const text = 'HubSpot Starter is $99 [W1].';
+    const res = verify(text, mockEvidence, ['HubSpot']);
+    expect(res.flags.length).toBe(1);
+    expect(res.flags[0]?.claim).toContain('HubSpot Starter is $99');
+    expect(res.flags[0]?.sourceRef).toBe('W1');
+    expect(res.flags[0]?.reason).toContain('$99 is not in the cited source');
+  });
+
+  it('flags change claims based on undated web evidence as unconfirmed', () => {
+    const undatedEvidence: EvidenceItem[] = [
+      {
+        ref: 'W3',
+        kind: 'web',
+        title: 'Undated Pricing',
+        entity: 'HubSpot',
+        url: 'https://hubspot.com/pricing',
+        domain: 'hubspot.com',
+        snippet: 'HubSpot plan changed to $30.',
+        published: null, // undated!
+      },
+    ];
+    const text = 'HubSpot pricing changed to $30 [W3].';
+    const res = verify(text, undatedEvidence, ['HubSpot']);
+    expect(res.flags.some(f => f.stale && f.reason.includes('undated or stale'))).toBe(true);
+    expect(res.flags.find(f => f.stale)?.sourceRef).toBe('W3');
+  });
+
   it('word-boundary matching does not falsely match common words like "close"', () => {
     const aliases = buildAliases(['Close'], mockEvidence);
     const closeAliases = aliases.get('Close') || [];

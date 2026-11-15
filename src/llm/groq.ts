@@ -50,6 +50,7 @@ export interface ChatMsg {
 export interface StreamRoundOpts {
   messages: ChatMsg[];
   tools?: unknown[];
+  tool_choice?: 'auto' | 'none' | 'required' | { type: 'function'; function: { name: string } };
   emit: (event: string, payload: unknown) => void;
   signal: AbortSignal;
 }
@@ -89,7 +90,12 @@ export async function streamRound(opts: StreamRoundOpts): Promise<StreamRoundRes
   }
 
   const client = getGroqClient();
-  const modelsToTry = [cfg.model, cfg.fallbackModel];
+  const modelsToTry = Array.from(new Set([
+    cfg.model,
+    cfg.fallbackModel,
+    'openai/gpt-oss-20b',
+    'qwen/qwen3.8-27b',
+  ])).filter(Boolean);
 
   let lastError: unknown = null;
 
@@ -104,7 +110,7 @@ export async function streamRound(opts: StreamRoundOpts): Promise<StreamRoundRes
             model,
             messages: opts.messages as any,
             tools: (opts.tools as any) || undefined,
-            tool_choice: opts.tools ? 'auto' : undefined,
+            tool_choice: opts.tool_choice ?? (opts.tools ? 'auto' : undefined),
             temperature: 0.3,
             stream: true,
           },
@@ -177,15 +183,37 @@ export async function streamRound(opts: StreamRoundOpts): Promise<StreamRoundRes
         return { content, toolCalls };
       } catch (err: any) {
         lastError = err;
+        console.error(`[GROQ ERROR] model=${model} status=${err?.status} msg=${err?.message} code=${err?.error?.code || err?.code}`);
         // If aborted, check if we have content
         if (opts.signal.aborted) {
           throw err;
         }
 
         const status = err?.status || err?.statusCode;
-        if (status === 429) {
-          // On rate limit, wait 3000ms with jitter and retry or fallback
-          await new Promise((resolve) => setTimeout(resolve, 3000));
+        const msg = String(err?.message || '');
+        const isDailyLimit = /tokens per day|TPD/i.test(msg);
+        if (isDailyLimit) {
+          console.warn(`[WARN] Daily limit reached for ${model}. Falling back to next model immediately.`);
+          break;
+        }
+
+        if (err?.error?.code === 'tool_use_failed' || /tool call validation failed/i.test(msg)) {
+          console.warn(`[WARN] Tool call generation format glitch on ${model}, retrying...`);
+          if (attempt === 0) continue;
+          break;
+        }
+
+        const isRateLimit = status === 429 || status === 413 || err?.error?.code === 'rate_limit_exceeded' || /rate_limit/i.test(msg);
+        if (isRateLimit) {
+          const hasAlternative = modelsToTry.indexOf(model) < modelsToTry.length - 1;
+          if (hasAlternative) {
+            console.warn(`[WARN] Rate limit hit for ${model}. Switching immediately to next available model.`);
+            break;
+          }
+          const rawRetry = err?.headers?.get ? err.headers.get('retry-after') : err?.headers?.['retry-after'];
+          const retrySec = Number(rawRetry) || 5;
+          const waitMs = Math.min(10000, Math.max(2000, retrySec * 1000));
+          await new Promise((resolve) => setTimeout(resolve, waitMs));
           if (attempt === 0) continue;
           break;
         } else if (status >= 500 && status < 600) {

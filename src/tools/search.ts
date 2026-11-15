@@ -299,7 +299,13 @@ export async function runBatch(
 
   async function worker() {
     while (queue.length > 0) {
-      if (signal.aborted || budget.exhausted) break;
+      if (
+        signal.aborted ||
+        budget.queries >= budget.c.maxQueries ||
+        budget.elapsed > budget.c.deadlineMs - budget.c.reserveForAnswerMs
+      ) {
+        break;
+      }
       const q = queue.shift();
       if (!q) break;
 
@@ -346,6 +352,10 @@ export class EvidenceStore {
   private wCounter = 1;
   private seenUrls = new Map<string, string>(); // canonicalUrl -> ref
 
+  getRef(url: string): string | undefined {
+    return this.seenUrls.get(canonicalUrl(url));
+  }
+
   constructor(initialMemoryItems: EvidenceItem[] = [], budget?: Budget) {
     this.items.push(...initialMemoryItems);
     if (budget) {
@@ -357,7 +367,7 @@ export class EvidenceStore {
   }
 
   add(batchResults: QueryExecutionResult[], budget?: Budget): void {
-    if (budget && budget.exhausted) return;
+    if (budget && budget.evidenceChars >= budget.c.maxEvidenceChars) return;
 
     // Group results by entity
     const byEntity = new Map<string, Array<{ query: Query; r: RawResult }>>();
@@ -390,10 +400,10 @@ export class EvidenceStore {
     }
 
     while (addedAny) {
-      if (budget && budget.exhausted) break;
+      if (budget && budget.evidenceChars >= budget.c.maxEvidenceChars) break;
       addedAny = false;
       for (const e of entities) {
-        if (budget && budget.exhausted) break;
+        if (budget && budget.evidenceChars >= budget.c.maxEvidenceChars) break;
         const list = byEntity.get(e) || [];
         const added = entityAddedCount.get(e) || 0;
         let idx = entityIndices.get(e) || 0;
@@ -416,7 +426,7 @@ export class EvidenceStore {
           if (currentDomainCount >= 2) continue;
 
           let snippet = sanitizeTags(item.r.content || '');
-          const maxSnippet = item.query.read ? 700 : 400;
+          const maxSnippet = item.query.read ? 450 : 250;
           if (snippet.length > maxSnippet) {
             snippet = snippet.slice(0, maxSnippet);
           }
@@ -473,7 +483,8 @@ export function formatToolResult(
   results: QueryExecutionResult[],
   dropped: Query[],
   budget: Budget,
-  allKnownEntities: string[] = []
+  allKnownEntities: string[] = [],
+  evidenceStore?: EvidenceStore
 ): string {
   const parts: string[] = [];
   parts.push(
@@ -501,12 +512,15 @@ export function formatToolResult(
     for (let i = 0; i < Math.min(2, res.results.length); i++) {
       const r = res.results[i];
       if (!r) continue;
-      const domain = getDomain(r.url);
+      const cUrl = canonicalUrl(r.url);
+      const domain = getDomain(cUrl);
       const pub = r.published_date || 'unknown';
       const retrieved = nowHuman('UTC');
-      const snippet = sanitizeTags((r.content || '').slice(0, 500));
+      const snippet = sanitizeTags((r.content || '').slice(0, 250));
+      const ref = evidenceStore?.getRef(cUrl);
+      const tagPrefix = ref ? `[${ref}] ` : '';
 
-      parts.push(`UNTRUSTED WEB RESULT JSON: ${JSON.stringify({ domain, published: pub, retrieved, url: canonicalUrl(r.url), snippet })} [published="${pub}"]`);
+      parts.push(`${tagPrefix}UNTRUSTED WEB RESULT JSON: ${JSON.stringify({ tag: ref || null, entity: q.entity || null, domain, published: pub, retrieved, url: cUrl, snippet })} [published="${pub}"]`);
     }
     parts.push('');
   }
@@ -523,6 +537,15 @@ export function formatToolResult(
     if (gaps.length > 0) {
       parts.push(`ENTITIES WITH NO EVIDENCE YET: ${gaps.join(', ')}.`);
       parts.push(`ENTITIES WITH NO EVIDENCE YET JSON: ${JSON.stringify(gaps)}`);
+    }
+  }
+
+  if (evidenceStore) {
+    const webItems = evidenceStore.items.filter(i => i.kind === 'web');
+    if (webItems.length > 0) {
+      const summaryList = webItems.map(i => `[${i.ref}] ${i.entity ? `${i.entity} (${i.domain})` : i.domain}`).join('; ');
+      parts.push(`\nAVAILABLE WEB CITATION TAGS: ${summaryList}`);
+      parts.push(`RULE: When citing web evidence, use ONLY the tags above (e.g. [W1]). Never invent tag numbers.`);
     }
   }
 

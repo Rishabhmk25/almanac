@@ -102,7 +102,7 @@ export async function runEval(): Promise<void> {
       category: 'recall',
       description: 'Provides both today and 7 days ago readings for bare weekday matching today',
       run: () => {
-        const todayWeekday = new Intl.DateTimeFormat('en-US', { weekday: 'long' }).format(frozenNow);
+        const todayWeekday = new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'long' }).format(frozenNow);
         const query = `Did I ask you something on ${todayWeekday}?`;
         const hints = resolveDateHints(query, frozenNow, tz);
         const target = hints.find(h => h.phrase.toLowerCase() === todayWeekday.toLowerCase());

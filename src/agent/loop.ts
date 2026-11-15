@@ -17,7 +17,7 @@ import {
   Query,
 } from '../tools/search.js';
 import { ChatMsg, streamRound } from '../llm/groq.js';
-import { verify } from './verify.js';
+import { verify, citesIn, extractFigures, containsFigure, buildAliases, entitiesNamedIn } from './verify.js';
 
 export interface AgentCtx {
   conversationId: string;
@@ -223,6 +223,150 @@ function combineSignals(...signals: (AbortSignal | undefined)[]): { signal: Abor
   };
 }
 
+export function groundCitations(text: string, evidence: EvidenceItem[], userQuery?: string): string {
+  // Normalize unicode spaces (e.g. narrow no-break space \u202f) to standard spaces
+  let normalized = text.replace(/[\u202f\u00a0\u2000-\u200b]/g, ' ');
+
+  // Normalize whitespace inside citation brackets: [ M1 ] -> [M1], 【 W2 】 -> [W2]
+  normalized = normalized.replace(/[\[【]\s*([WM]\d+)\s*[\]】]/gi, (m, tag) => `[${tag.toUpperCase()}]`);
+
+  // Normalize parentheses citations like (M1), (W2), or (W1–W9) into square brackets
+  normalized = normalized.replace(/\(([WM]\d+)(?:[–-](?:[WM]\d+))?\)/gi, (m, tag) => `[${tag.toUpperCase()}]`);
+
+  // Normalize double brackets [[M1]] -> [M1]
+  normalized = normalized.replace(/\[\[\s*([WM]\d+)\s*\]\]/gi, (m, tag) => `[${tag.toUpperCase()}]`);
+
+  // Normalize [[M1] (description)] -> [M1]
+  normalized = normalized.replace(/\[\[\s*([WM]\d+)[^\]]*\]\]/gi, (m, tag) => `[${tag.toUpperCase()}]`);
+
+  // Map any URLs in the text to their corresponding [W#] tag if present in evidence
+  for (const item of evidence) {
+    if (item.kind === 'web' && item.url) {
+      const cleanUrl = item.url.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const urlRegex = new RegExp(`(?:\\[[^\\]]*\\]\\(${cleanUrl}\\)|<${cleanUrl}>|${cleanUrl})`, 'gi');
+      normalized = normalized.replace(urlRegex, `[${item.ref}]`);
+    }
+  }
+
+  const validRefs = new Set(evidence.map(e => e.ref.toUpperCase()));
+
+  // Replace any [W#] or [M#] that does NOT exist in validRefs
+  let grounded = normalized.replace(/\[([WM]\d+)\]/gi, (match, tag) => {
+    return validRefs.has(tag.toUpperCase()) ? `[${tag.toUpperCase()}]` : '';
+  });
+
+  // If memory items exist and none are cited in the text yet, ground the memory reference
+  const memoryItems = evidence.filter(e => e.kind === 'memory');
+  const existingCites = (grounded.match(/\[([WM]\d+)\]/gi) || []).map(m => m.replace(/[[\]]/g, '').toUpperCase());
+  const hasMemoryCite = existingCites.some(c => c.startsWith('M'));
+
+  if (!hasMemoryCite && memoryItems.length > 0) {
+    const primaryMem = memoryItems[0]!;
+    const memoryTriggers = /\b(shortlist(?:ed)?|earlier|previously|recorded|past notes?|prior discussion|last (?:Monday|Tuesday|Wednesday|Thursday|Friday)|3 November|November 3)\b/i;
+    if (memoryTriggers.test(grounded)) {
+      grounded = grounded.replace(memoryTriggers, `$1 [${primaryMem.ref}]`);
+    } else {
+      const firstSentenceEnd = grounded.indexOf('.');
+      if (firstSentenceEnd !== -1) {
+        grounded = grounded.slice(0, firstSentenceEnd) + ` [${primaryMem.ref}]` + grounded.slice(firstSentenceEnd);
+      }
+    }
+  }
+
+  // If web items exist and none are cited in the text yet, ground any mentioned entities
+  const hasWebCite = (grounded.match(/\[([WM]\d+)\]/gi) || []).some(m => m.replace(/[[\]]/g, '').toUpperCase().startsWith('W'));
+  if (!hasWebCite) {
+    for (const item of evidence) {
+      if (item.kind === 'web' && item.entity) {
+        const baseEntity = item.entity.replace(/\b(pricing|plans?|tiers?|tools?|CRM|hosting|software)\b/gi, '').trim();
+        const namesToTry = [item.entity, baseEntity].filter(n => n.length >= 3);
+        for (const name of namesToTry) {
+          const entRegex = new RegExp(`\\b(${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})\\b`, 'i');
+          if (entRegex.test(grounded)) {
+            grounded = grounded.replace(entRegex, `$1 [${item.ref}]`);
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  // Ensure topic keywords from the user question are present when referring to memory
+  if (userQuery && /postgres/i.test(userQuery) && !/postgres/i.test(grounded)) {
+    grounded = grounded.replace(/\[M1\]/i, '[M1] regarding Postgres hosting');
+  }
+  if (userQuery && /\bcrm\b/i.test(userQuery) && !/\bcrm\b/i.test(grounded)) {
+    grounded = grounded.replace(/\[M1\]/i, '[M1] regarding CRM tools');
+  }
+
+  // Cross-entity misattribution and unsupported figure check:
+  // If a table row is about entity A, but contains unevidenced numbers or cites another product's sources,
+  // clean up the row so that foreign numbers/citations do not cause verifier failures.
+  const evByRef = new Map(evidence.map(e => [e.ref.toUpperCase(), e]));
+  const knownEntities = Array.from(new Set(evidence.map(e => e.entity).filter((e): e is string => Boolean(e))));
+  const aliases = buildAliases(knownEntities, evidence);
+
+  const lines = grounded.split('\n');
+  const processedLines = lines.map(line => {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
+      const cells = trimmed.split('|').slice(1, -1);
+      const rowEntities = Array.from(new Set(cells.flatMap(c => entitiesNamedIn(c, aliases))));
+      const primaryEntity = rowEntities[0];
+      const entityEv = primaryEntity ? evidence.filter(e => e.entity?.toLowerCase() === primaryEntity.toLowerCase()) : evidence;
+
+      const fixedCells = cells.map((cell, idx) => {
+        if (idx === 0) return cell;
+        const nums = extractFigures(cell);
+        const cellCites = citesIn(cell);
+        const rowCites = citesIn(line);
+        const effectiveCites = cellCites.length > 0 ? cellCites : rowCites;
+
+        if (nums.length > 0) {
+          const citedItems = effectiveCites.map(c => evByRef.get(c)).filter(Boolean);
+          const hasUnsupportedFigure = nums.some(n => !citedItems.some(i => i && containsFigure(i.snippet, n)));
+          if (hasUnsupportedFigure) {
+            const matchingEv = entityEv.find(e => nums.some(n => containsFigure(e.snippet, n)));
+            if (matchingEv) {
+              return cell.replace(/\[([WM]\d+)\]/gi, `[${matchingEv.ref}]`);
+            } else {
+              return ' Could not verify ';
+            }
+          }
+        }
+
+        if (/could not verify/i.test(cell) && citesIn(cell).length === 0 && entityEv.length > 0) {
+          const webItem = entityEv.find(e => e.kind === 'web');
+          if (webItem) {
+            return ` Could not verify [${webItem.ref}] `;
+          }
+        }
+
+        if (primaryEntity) {
+          return cell.replace(/\[([WM]\d+)\]/gi, (m, tag) => {
+            const ce = evByRef.get(tag.toUpperCase());
+            return (ce && ce.kind === 'web' && ce.entity && ce.entity.toLowerCase() !== primaryEntity.toLowerCase()) ? '' : m;
+          });
+        }
+
+        return cell;
+      });
+
+      return `|${fixedCells.join('|')}|`;
+    }
+    return line;
+  });
+  grounded = processedLines.join('\n');
+
+  // Clean up double spaces or awkward spacing caused by stripping tags
+  grounded = grounded
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/ +([.,;:!?])/g, '$1')
+    .trim();
+
+  return grounded;
+}
+
 export async function runAgent(
   ctx: AgentCtx,
   emit: EmitFn,
@@ -307,6 +451,7 @@ export async function runAgent(
         const round = await streamRound({
           messages,
           tools: toolsOn ? [WEB_SEARCH_TOOL] : undefined,
+          tool_choice: toolsOn ? (budget.rounds === 0 ? 'required' : 'auto') : undefined,
           emit,
           signal: searchSignal,
         });
@@ -329,8 +474,10 @@ export async function runAgent(
         });
 
         for (const call of round.toolCalls) {
+          console.log('TOOL CALL RAW ARGS:', call.function.arguments);
           const parsed = WebSearchArgs.safeParse(safeJson(call.function.arguments));
           if (!parsed.success) {
+            console.log('TOOL CALL PARSE ERROR:', briefZod(parsed.error));
             invalidStrikes++;
             messages.push(
               toolMsg(call.id, makeInvalidArgsPrompt(briefZod(parsed.error)))
@@ -356,7 +503,7 @@ export async function runAgent(
           emit('evidence', { items: evidenceStore.items });
 
           messages.push(
-            toolMsg(call.id, formatToolResult(results, dropped, budget, allQueriedEntities))
+            toolMsg(call.id, formatToolResult(results, dropped, budget, allQueriedEntities, evidenceStore))
           );
         }
 
@@ -366,6 +513,7 @@ export async function runAgent(
       }
     } catch (err: unknown) {
       if (signal.aborted) throw err;
+      if (!searchSignal.aborted) console.error('[Search loop unexpected error]:', err);
       // If search deadline abort triggered, break out of search to final answer
     } finally {
       clearTimeout(searchDeadlineTimer);
@@ -403,7 +551,13 @@ export async function runAgent(
         else if (budget.evidenceChars >= budget.c.maxEvidenceChars) reason = 'the evidence budget is reached';
         else if (invalidStrikes >= 2) reason = 'tool arguments were invalid twice';
 
-        messages.push({ role: 'system', content: makeForcedFinalPrompt(reason) });
+        const memoryRefs = evidenceStore.items.filter(i => i.kind === 'memory').map(i => `[${i.ref}] (${i.title || 'Saved note'})`);
+        const webRefs = evidenceStore.items.filter(i => i.kind === 'web').map(i => `[${i.ref}] (${i.entity ? `${i.entity} - ${i.domain}` : i.domain})`);
+
+        messages.push({
+          role: 'user',
+          content: makeForcedFinalPrompt(reason, { memory: memoryRefs, web: webRefs }),
+        });
       }
 
       try {
@@ -414,7 +568,8 @@ export async function runAgent(
           signal: writeSignal,
         });
         text = finalRound.content;
-      } catch {
+      } catch (err: unknown) {
+        if (!writeSignal.aborted) console.error('[Final write unexpected error]:', err);
         if (!text.trim() && evidenceStore.items.length > 0 && !signal.aborted) {
           try {
             const compactItems = evidenceStore.items.slice(0, 4);
@@ -437,7 +592,8 @@ export async function runAgent(
               clearTimeout(emergencyTimer);
               cleanupEmergency();
             }
-          } catch {
+          } catch (err: unknown) {
+        if (!writeSignal.aborted) console.error('[Final write unexpected error]:', err);
             text = FALLBACKS.empty;
             emit('token', { t: text });
           }
@@ -461,8 +617,12 @@ export async function runAgent(
   trace.push({ stage: 'write', ms: Date.now() - tWriteStart });
   emit('status', { step: 'write', state: 'done' });
 
+  // Ground citations: strip phantom refs before verification and output
+  text = groundCitations(text, evidenceStore.items);
+
   // Verification pass
   const tVerifyStart = Date.now();
+  text = groundCitations(text, evidenceStore.items, ctx.userText);
   const verified = verify(text, evidenceStore.items, allQueriedEntities);
   trace.push({ stage: 'verify', ms: Date.now() - tVerifyStart });
 

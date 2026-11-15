@@ -123,7 +123,12 @@ async function main(): Promise<void> {
   const selected = caseId ? cases.filter(item => item.id === caseId) : cases;
   const results: EvalResult[] = [];
 
-  for (const testCase of selected) {
+  for (let idx = 0; idx < selected.length; idx++) {
+    const testCase = selected[idx]!;
+    if (idx > 0) {
+      console.log('\nPacing Groq rate limits between eval cases (60s cooldown)...');
+      await new Promise(r => setTimeout(r, 60000));
+    }
     const hints = resolveDateHints(testCase.query, now(), timezone);
     const memory = buildMemoryContext(testCase.query, hints, null, [], timezone);
     const agentResult = await runAgent({

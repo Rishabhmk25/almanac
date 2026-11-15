@@ -18,7 +18,6 @@ export type Query = z.infer<typeof WebSearchQuery>;
 export const WebSearchArgs = z.object({
   queries: z.array(WebSearchQuery).min(1).max(10),
 });
-export type WebSearchArgsType = z.infer<typeof WebSearchArgs>;
 
 export class Budget {
   rounds = 0;
@@ -86,15 +85,11 @@ function cacheKey(q: Query): string {
 export function canonicalUrl(u: string): string {
   try {
     const parsed = new URL(u);
-    parsed.searchParams.delete('utm_source');
-    parsed.searchParams.delete('utm_medium');
-    parsed.searchParams.delete('utm_campaign');
-    parsed.searchParams.delete('utm_term');
-    parsed.searchParams.delete('utm_content');
+    for (const p of ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content']) {
+      parsed.searchParams.delete(p);
+    }
     parsed.hash = '';
-    let res = parsed.toString();
-    if (res.endsWith('/')) res = res.slice(0, -1);
-    return res;
+    return parsed.toString().replace(/\/$/, '');
   } catch {
     return u;
   }

@@ -1,5 +1,5 @@
 import { cfg } from '../config.js';
-import { now, nowIso, nowHuman } from '../clock.js';
+import { nowIso, nowHuman } from '../clock.js';
 import { getDb } from '../db/migrate.js';
 import {
   countUserMessages,
@@ -53,7 +53,6 @@ export function buildMemoryContext(
   excludeIds: string[] = [],
   tz: string = 'UTC'
 ): InjectedMemory {
-  const currentNow = now();
   const currentIso = nowIso();
   const currentHuman = nowHuman(tz);
 

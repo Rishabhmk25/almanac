@@ -31,8 +31,7 @@ export function migrate(db: Database.Database): void {
   let currentVersion = typeof versionRow === 'number' ? versionRow : 0;
 
   // Read migrations directory
-  // When running via tsx or compiled js, handle path resolution
-  const migrationsDir = path.join(import.meta.dirname || path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Z]:)/, '$1')), 'migrations');
+  const migrationsDir = path.join(import.meta.dirname, 'migrations');
   
   if (!fs.existsSync(migrationsDir)) return;
 

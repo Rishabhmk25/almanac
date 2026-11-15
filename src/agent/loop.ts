@@ -229,7 +229,6 @@ export async function runAgent(
   signal: AbortSignal
 ): Promise<AgentResult> {
   const trace: TraceStep[] = [];
-  const t0 = Date.now();
 
   const budget = new Budget(cfg.budget);
   const evidenceStore = new EvidenceStore(ctx.memoryItems, budget);
@@ -273,7 +272,6 @@ export async function runAgent(
   ];
 
   let invalidStrikes = 0;
-  let forced = false;
   let text = '';
   const allQueriedEntities: string[] = [];
 

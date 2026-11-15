@@ -109,20 +109,11 @@ export function entitiesNamedIn(text: string, aliases: Map<string, string[]>): s
     const isOrdinary = ORDINARY_WORD_ENTITIES.has(entity.toLowerCase());
 
     for (const alias of aliasList) {
-      if (isOrdinary) {
-        // Case-sensitive word boundary matching for ordinary words like "Close"
-        const regex = new RegExp(`\\b${alias}\\b`);
-        if (regex.test(text)) {
-          named.push(entity);
-          break;
-        }
-      } else {
-        // Case-insensitive word boundary matching
-        const regex = new RegExp(`\\b${alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
-        if (regex.test(text)) {
-          named.push(entity);
-          break;
-        }
+      const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex = new RegExp(`\\b${escaped}\\b`, isOrdinary ? '' : 'i');
+      if (regex.test(text)) {
+        named.push(entity);
+        break;
       }
     }
   }
@@ -134,14 +125,12 @@ export function itemMentions(item: EvidenceItem, aliasList: string[]): boolean {
   const corpus = `${item.title} ${item.domain || ''} ${item.snippet}`;
   for (const alias of aliasList) {
     const isOrdinary = ORDINARY_WORD_ENTITIES.has(alias.toLowerCase());
-    if (isOrdinary) {
-      if (item.domain && item.domain.toLowerCase().includes(alias.toLowerCase())) return true;
-      const regex = new RegExp(`\\b${alias}\\b`);
-      if (regex.test(corpus)) return true;
-    } else {
-      const regex = new RegExp(`\\b${alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
-      if (regex.test(corpus)) return true;
+    if (isOrdinary && item.domain && item.domain.toLowerCase().includes(alias.toLowerCase())) {
+      return true;
     }
+    const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(`\\b${escaped}\\b`, isOrdinary ? '' : 'i');
+    if (regex.test(corpus)) return true;
   }
   return false;
 }

@@ -20,7 +20,24 @@
   const sidebar = $('#sidebar'), sidebarBackdrop = $('#sidebarBackdrop');
   const toggleSidebarBtn = $('#toggleSidebar'), closeSidebarBtn = $('#closeSidebar');
   const quickNewChatBtn = $('#quickNewChat'), activePageTag = $('#activePageTag');
+  const themeToggleBtn = $('#toggleTheme');
   const state = { convs: [], activeId: null, current: null, busy: false };
+
+  function setTheme(theme, save = false) {
+    const dark = theme === 'dark';
+    document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+    if (themeToggleBtn) {
+      themeToggleBtn.setAttribute('aria-pressed', String(dark));
+      themeToggleBtn.setAttribute('aria-label', 'Toggle dark mode');
+      $('.tab-icon', themeToggleBtn).textContent = dark ? '☀' : '☾';
+      $('.tab-label', themeToggleBtn).textContent = dark ? 'LIGHT' : 'DARK';
+    }
+    if (save) {
+      try { localStorage.setItem('almanac-theme', dark ? 'dark' : 'light'); } catch {}
+    }
+  }
+
+  setTheme(document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light');
 
   const PROMPT_SUGGESTIONS = [
     'What is on my schedule and task list for today?',
@@ -472,6 +489,9 @@
 
   $('#newChat').addEventListener('click', newChat);
   if (quickNewChatBtn) quickNewChatBtn.addEventListener('click', newChat);
+  if (themeToggleBtn) themeToggleBtn.addEventListener('click', () => {
+    setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark', true);
+  });
   if (toggleSidebarBtn) toggleSidebarBtn.addEventListener('click', toggleSidebar);
   if (closeSidebarBtn) closeSidebarBtn.addEventListener('click', closeSidebar);
   if (sidebarBackdrop) sidebarBackdrop.addEventListener('click', closeSidebar);

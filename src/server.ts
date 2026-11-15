@@ -9,7 +9,7 @@ import crypto from 'node:crypto';
 import { z } from 'zod';
 
 import { cfg } from './config.js';
-import { now, nowIso } from './clock.js';
+import { now } from './clock.js';
 import { getDb } from './db/migrate.js';
 import {
   getOrCreateConversation,

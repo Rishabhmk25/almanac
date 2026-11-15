@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Almanac</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <!-- Typewriter Loading Screen -->
+  <div id="loadingScreen" class="loading-screen" aria-live="polite">
+    <div class="typewriter-box">
+      <div class="typewriter-tape"></div>
+      <div class="typewriter-label">EDITION &middot; 2026</div>
+      <div class="typewriter-text-wrap">
+        <span id="typewriterText" class="typewriter-text"></span>
+        <span class="typewriter-cursor"></span>
+      </div>
+      <div class="typewriter-sub">RESEARCH &middot; ARCHIVE &middot; INTELLIGENCE</div>
+    </div>
+  </div>
+
+  <!-- Sidebar Backdrop -->
+  <div id="sidebarBackdrop" class="sidebar-backdrop" hidden></div>
+
+  <!-- Hideable Sidebar for Chats -->
+  <aside id="sidebar" class="sidebar" aria-label="Pages and History">
+    <div class="sidebar-header">
+      <div class="sidebar-brand-wrap">
+        <span class="sidebar-tape"></span>
+        <h2 id="deskTitle" class="sidebar-brand">ALMANAC</h2>
+      </div>
+      <button id="closeSidebar" class="cutout-btn close-btn" type="button" aria-label="Close sidebar">&times;</button>
+    </div>
+
+    <div class="sidebar-actions">
+      <button id="newChat" class="cutout-btn new-chat-btn" type="button">
+        <span class="cutout-plus">+</span> NEW PAGE
+      </button>
+    </div>
+
+    <div class="sidebar-scroll">
+      <nav id="convList" class="conv-list" aria-label="Saved chats"></nav>
+    </div>
+
+    <div class="sidebar-footer">
+      <div class="sidebar-stamp">
+        <span class="stamp-sq"></span>
+        <span id="today" class="today"></span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main Workspace Shell (No Top Bar) -->
+  <div class="shell">
+    <!-- Floating Magazine Cutout Controls (Replaces the generic top bar) -->
+    <div class="floating-controls">
+      <button id="toggleSidebar" class="cutout-tab" type="button" aria-label="Open pages sidebar">
+        <span class="tab-icon">&#9776;</span>
+        <span class="tab-label">PAGES</span>
+      </button>
+      <button id="quickNewChat" class="cutout-tab quick-new" type="button" aria-label="Start new page">
+        <span class="tab-plus">+</span>
+        <span class="tab-label">NEW</span>
+      </button>
+      <div id="activePageTag" class="active-page-tag" hidden></div>
+    </div>
+
+    <div class="banner" id="banner" hidden></div>
+
+    <main class="thread" id="thread" role="log" aria-live="polite" aria-busy="false"></main>
+
+    <form class="composer" id="composer">
+      <div class="composer-tape"></div>
+      <label class="sr" for="input">Message</label>
+      <textarea id="input" rows="1" maxlength="4000"
+        placeholder="Ask anything. I'll check our notes first, then the web."></textarea>
+      <button class="send cutout-btn" id="send" type="submit" aria-label="Send" disabled>&#8629;</button>
+    </form>
+  </div>
+
+  <script src="/vendor/marked.umd.js"></script>
+  <script src="/vendor/purify.min.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

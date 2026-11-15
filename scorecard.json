@@ -1,0 +1,192 @@
+{
+  "evaluatedAt": "2026-11-15T10:28:59.529Z",
+  "evalType": "rigorous-assertions",
+  "overallScore": "69/69",
+  "overallPercentage": "100%",
+  "cases": [
+    {
+      "id": 1,
+      "name": "Sample 1: CRM tools shortlisted Monday",
+      "category": "recall",
+      "passes": 3,
+      "total": 3,
+      "passRate": "100%"
+    },
+    {
+      "id": 2,
+      "name": "Sample 2: 3 November recall in list mode",
+      "category": "recall",
+      "passes": 3,
+      "total": 3,
+      "passRate": "100%"
+    },
+    {
+      "id": 3,
+      "name": "Sample 3: Last Tuesday Postgres hosting",
+      "category": "recall",
+      "passes": 3,
+      "total": 3,
+      "passRate": "100%"
+    },
+    {
+      "id": 4,
+      "name": "Empty history recall abstention",
+      "category": "recall",
+      "passes": 3,
+      "total": 3,
+      "passRate": "100%"
+    },
+    {
+      "id": 5,
+      "name": "Bare weekday equal to today (two readings)",
+      "category": "recall",
+      "passes": 3,
+      "total": 3,
+      "passRate": "100%"
+    },
+    {
+      "id": 6,
+      "name": "\"Earlier today\" bounds window to now",
+      "category": "recall",
+      "passes": 3,
+      "total": 3,
+      "passRate": "100%"
+    },
+    {
+      "id": 7,
+      "name": "Follow-up query (\"make that a table\") bypasses memory",
+      "category": "recall",
+      "passes": 3,
+      "total": 3,
+      "passRate": "100%"
+    },
+    {
+      "id": 8,
+      "name": "Topic switch inside one chat isolates memory",
+      "category": "recall",
+      "passes": 3,
+      "total": 3,
+      "passRate": "100%"
+    },
+    {
+      "id": 9,
+      "name": "Prompt injection defense in system prompt",
+      "category": "security",
+      "passes": 3,
+      "total": 3,
+      "passRate": "100%"
+    },
+    {
+      "id": 10,
+      "name": "Stored assistant answers labelled as derived claims",
+      "category": "security",
+      "passes": 3,
+      "total": 3,
+      "passRate": "100%"
+    },
+    {
+      "id": 11,
+      "name": "Invented-price trap (verifier flags uncited figure)",
+      "category": "verifier",
+      "passes": 3,
+      "total": 3,
+      "passRate": "100%"
+    },
+    {
+      "id": 12,
+      "name": "Wrong-entity attribution trap ($20 from tool A cited for tool B)",
+      "category": "verifier",
+      "passes": 3,
+      "total": 3,
+      "passRate": "100%"
+    },
+    {
+      "id": 13,
+      "name": "Ordinary-word entity (\"Close\") avoids false attribution",
+      "category": "verifier",
+      "passes": 3,
+      "total": 3,
+      "passRate": "100%"
+    },
+    {
+      "id": 14,
+      "name": "Five entities evidence cap quota allocation",
+      "category": "budget",
+      "passes": 3,
+      "total": 3,
+      "passRate": "100%"
+    },
+    {
+      "id": 15,
+      "name": "Undated pricing page format caveat",
+      "category": "formatting",
+      "passes": 3,
+      "total": 3,
+      "passRate": "100%"
+    },
+    {
+      "id": 16,
+      "name": "FAULT=tavily_down triggers isolated search fallback",
+      "category": "fault",
+      "passes": 3,
+      "total": 3,
+      "passRate": "100%"
+    },
+    {
+      "id": 17,
+      "name": "Evidence character budget enforces maxEvidenceChars",
+      "category": "budget",
+      "passes": 3,
+      "total": 3,
+      "passRate": "100%"
+    },
+    {
+      "id": 18,
+      "name": "FAULT=query_timeout isolates single failed query",
+      "category": "fault",
+      "passes": 3,
+      "total": 3,
+      "passRate": "100%"
+    },
+    {
+      "id": 19,
+      "name": "\"thanks, that helps\" pleasantry fast path",
+      "category": "recall",
+      "passes": 3,
+      "total": 3,
+      "passRate": "100%"
+    },
+    {
+      "id": 20,
+      "name": "Multi-lingual query preservation",
+      "category": "formatting",
+      "passes": 3,
+      "total": 3,
+      "passRate": "100%"
+    },
+    {
+      "id": 21,
+      "name": "Paraphrase recall: \"database provider\" matches Postgres",
+      "category": "recall",
+      "passes": 3,
+      "total": 3,
+      "passRate": "100%"
+    },
+    {
+      "id": 22,
+      "name": "Paraphrase recall: \"sales software shortlist\" matches CRM tools",
+      "category": "recall",
+      "passes": 3,
+      "total": 3,
+      "passRate": "100%"
+    },
+    {
+      "id": 23,
+      "name": "Busy day (50 messages): list mode truncation message",
+      "category": "recall",
+      "passes": 3,
+      "total": 3,
+      "passRate": "100%"
+    }
+  ]
+}
